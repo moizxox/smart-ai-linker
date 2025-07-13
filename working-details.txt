@@ -1,0 +1,55 @@
+Core Features Implemented:
+DeepSeek AI Integration
+Secure API communication with DeepSeek
+Intelligent content analysis for relevant link suggestions
+Error handling and logging
+Automatic Internal Linking
+Hooks into WordPress's publish_post action
+Processes new posts automatically
+Respects post type settings
+Manual Link Generation
+Meta box in post editor
+Generate links on demand
+Clear existing links
+Visual feedback for all actions
+Settings Page
+API key configuration
+Enable/disable auto-linking
+Set maximum links per post
+Select post types for processing
+Compatibility & Security
+PHP and WordPress version checks
+Required extension verification
+Secure nonce verification
+Data sanitization and validation
+Cleanup & Maintenance
+Proper plugin activation/deactivation
+Clean uninstall option
+Transient cleanup
+===================
+How to Use:
+>Initial Setup:
+Install and activate the plugin
+Go to Settings > Smart AI Linker
+Enter your DeepSeek API key
+Configure other settings as needed
+Automatic Linking:
+Create or edit a post
+Publish or update the post
+The plugin will automatically add relevant internal links
+>Manual Linking:
+Edit any post
+Find the "Smart AI Linker" meta box
+Click "Generate Links" to manually add links
+Use "Clear Links" to remove generated links
+>Testing:
+Create a test post with some content
+Publish it and check the logs for API communication
+Verify links are added to the content
+Test the manual link generation
+Verify settings are saved correctly
+>Next Steps:
+Test the plugin thoroughly in a staging environment
+Consider adding more detailed logging for debugging
+Add translation files for internationalization
+Implement caching for API responses to reduce API calls
