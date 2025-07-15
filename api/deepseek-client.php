@@ -111,8 +111,15 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
         'post_status' => 'publish',
         'posts_per_page' => 50, // Limit to 50 most recent posts for context
         'exclude' => [$post_id], // Exclude current post
+        'post__not_in' => [$post_id], // Double ensure current post is excluded
         'fields' => 'ids',
     ]);
+    
+    // If no posts found, return empty array
+    if (empty($existing_posts)) {
+        error_log('[Smart AI] No other posts found to link to');
+        return [];
+    }
     
     $post_titles = [];
     foreach ($existing_posts as $pid) {
@@ -134,9 +141,10 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
              "4. Do not suggest links that already exist in the post.\n" .
              "5. Prioritize links that add value to the reader.\n" .
              "6. Return between 3-7 suggestions unless more are clearly needed.\n\n" .
+             "IMPORTANT: DO NOT suggest links to the current post (ID: {$post_id}, Title: {$post_title}).\n" .
              "RESPONSE FORMAT:\n" .
              "Return a valid JSON array of objects, each with 'anchor' and 'url' keys.\n" .
-             "Example: [{\"anchor\": \"example text\", \"url\": \"https://example.com/post/\"}]\n\n" .
+             "Example: [{\"anchor\": \"example text\", \"url\": \"https://example.com/other-post/\"}]\n\n" .
              "CONTENT TO ANALYZE:\n" .
              substr($content, 0, 10000); // Limit content length to avoid API limits
 
@@ -267,7 +275,6 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
                  (strlen($ai_response) > 500 ? '...' : ''));
         
         // Extract JSON from markdown code block if present
-        $matches = [];
         if (preg_match('/```(?:json\n)?(.*?)```/s', $ai_response, $matches) && !empty($matches[1])) {
             $ai_response = trim($matches[1]);
             error_log('[Smart AI] Extracted JSON from code block: ' . $ai_response);
@@ -276,13 +283,56 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
         // Try to parse the JSON
         $suggestions = json_decode($ai_response, true);
         
-        // If successful, return the suggestions
-        if (json_last_error() === JSON_ERROR_NONE && is_array($suggestions)) {
-            error_log('[Smart AI] Successfully parsed ' . count($suggestions) . ' link suggestions');
-            return $suggestions;
-        } else {
-            error_log('[Smart AI] Failed to parse JSON response: ' . json_last_error_msg());
+        // If JSON parsing failed, try to extract JSON array directly
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            // Try to find a JSON array in the response
+            if (preg_match('/\[(?:\s*\{.*?\}\s*,?\s*)+\]/s', $ai_response, $matches)) {
+                $suggestions = json_decode($matches[0], true);
+                error_log('[Smart AI] Extracted JSON array from response');
+            }
         }
+        
+        // If we still don't have valid suggestions, return empty array
+        if (json_last_error() !== JSON_ERROR_NONE || !is_array($suggestions)) {
+            error_log('[Smart AI] Failed to parse JSON response: ' . json_last_error_msg());
+            error_log('[Smart AI] Response content: ' . substr($ai_response, 0, 500));
+            return [];
+        }
+        
+        // Filter out any suggestions that point to the current post or are empty
+        $filtered_suggestions = [];
+        $current_post_url = trailingslashit(urldecode(get_permalink($post_id)));
+        $current_post_url = strtok($current_post_url, '?#');
+        $post_slug = get_post_field('post_name', $post_id);
+        
+        foreach ($suggestions as $suggestion) {
+            if (empty($suggestion['url']) || empty($suggestion['anchor'])) {
+                continue;
+            }
+            
+            // Normalize URLs for comparison
+            $suggestion_url = trailingslashit(urldecode($suggestion['url']));
+            $suggestion_url = strtok($suggestion_url, '?#');
+            
+            // Check if this is a link to the current post
+            $is_same_post = ($suggestion_url === $current_post_url) || 
+                           ($post_slug && strpos($suggestion_url, $post_slug) !== false);
+            
+            if ($is_same_post) {
+                error_log('[Smart AI] Filtered out self-referential link: ' . $suggestion_url);
+                continue;
+            }
+            
+            $filtered_suggestions[] = [
+                'anchor' => $suggestion['anchor'],
+                'url' => $suggestion_url
+            ];
+        }
+        
+        error_log('[Smart AI] Successfully parsed ' . count($filtered_suggestions) . ' link suggestions');
+        return $filtered_suggestions;
+    } else {
+        error_log('[Smart AI] Failed to parse JSON response: ' . json_last_error_msg());
     }
     
     // Log the response data for debugging if we get here

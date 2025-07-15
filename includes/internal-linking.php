@@ -305,6 +305,9 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
             if (!$replaced) {
                 error_log('[Smart AI] Could not find anchor text, attempting to insert at optimal position');
                 
+                // Create the link HTML
+                $link_html = '<a href="' . esc_url($url) . '" class="smart-ai-link" title="' . esc_attr($anchor) . '">' . esc_html($anchor) . '</a>';
+                
                 // First try middle of the paragraph
                 $words = explode(' ', $paragraph);
                 $position = floor(count($words) / 2);
@@ -316,6 +319,10 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
                 } 
                 // If that fails, try to find a good position based on word matches
                 else {
+                    // Ensure link_html is defined
+                    if (!isset($link_html)) {
+                        $link_html = '<a href="' . esc_url($url) . '" class="smart-ai-link" title="' . esc_attr($anchor) . '">' . esc_html($anchor) . '</a>';
+                    }
                     $paragraph_text = is_string($paragraph) ? strip_tags($paragraph) : '';
                     $paragraph_words = !empty($paragraph_text) ? str_word_count($paragraph_text, 1) : [];
                     
@@ -345,7 +352,7 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
                     
                     // If we found a good position, insert the link
                     if ($best_position >= 0) {
-                        $words = explode(' ', $paragraph_text);
+                        $words = explode(' ', $paragraph);
                         if (isset($words[$best_position])) {
                             $words[$best_position] .= ' ' . $link_html;
                             $paragraph = implode(' ', $words);
@@ -353,37 +360,54 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
                             error_log('[Smart AI] Inserted link near matching words');
                         }
                     }
-                    
-                    // If still no match, skip to the next suggestion
-                    if (!$replaced) {
-                        error_log('[Smart AI] Could not find a good position for anchor: ' . $anchor);
-                        continue;
+                }
+                
+                // If we successfully inserted a link, update tracking variables
+                if ($replaced) {
+                    if (!in_array($anchor, $used_anchors, true)) {
+                        $used_anchors[] = $anchor;
+                        $used_urls[] = $url;
+                        $links_added++;
+                        $updated = true;
+                        
+                        // Save the modified paragraph back to the array
+                        $paragraphs[$p_index] = $paragraph;
+                        error_log('[Smart AI] Successfully inserted link: ' . $anchor . ' -> ' . $url);
+                        
+                        // Log the changes
+                        if ($original_paragraph !== $paragraph) {
+                            error_log('[Smart AI] Paragraph was modified successfully');
+                        } else {
+                            error_log('[Smart AI] WARNING: Paragraph content was not modified');
+                        }
+                        
+                        // Move to the next paragraph after successful insertion
+                        break;
                     }
                 }
-
-                // Mark this link as used
-                if (!in_array($anchor, $used_anchors, true)) {
-                    $used_anchors[] = $anchor;
-                    $used_urls[] = $url;
-                    $links_added++;
-                    $updated = true;
-                    
-                    // Save the modified paragraph back to the array
-                    $paragraphs[$p_index] = $paragraph;
-                    error_log('[Smart AI] Successfully inserted link: ' . $anchor . ' -> ' . $url);
-                    
-                    // Log the updated paragraph
-                    error_log('[Smart AI] Updated paragraph content: ' . substr($paragraph, 0, 200) . (strlen($paragraph) > 200 ? '...' : ''));
-                    
-                    // Log the changes
-                    if ($original_paragraph !== $paragraph) {
-                        error_log('[Smart AI] Paragraph was modified successfully');
-                    } else {
-                        error_log('[Smart AI] WARNING: Paragraph content was not modified');
+    
+                // If we successfully inserted a link, update tracking variables
+                if ($replaced) {
+                    if (!in_array($anchor, $used_anchors, true)) {
+                        $used_anchors[] = $anchor;
+                        $used_urls[] = $url;
+                        $links_added++;
+                        $updated = true;
+                        
+                        // Save the modified paragraph back to the array
+                        $paragraphs[$p_index] = $paragraph;
+                        error_log('[Smart AI] Successfully inserted link: ' . $anchor . ' -> ' . $url);
+                        
+                        // Log the changes
+                        if ($original_paragraph !== $paragraph) {
+                            error_log('[Smart AI] Paragraph was modified successfully');
+                        } else {
+                            error_log('[Smart AI] WARNING: Paragraph content was not modified');
+                        }
+                        
+                        // Move to the next paragraph after successful insertion
+                        break;
                     }
-                    
-                    // Move to the next paragraph after successful insertion
-                    break;
                 }
             }
         }
@@ -397,12 +421,30 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
     error_log('[Smart AI] - Links added: ' . $links_added);
     error_log('[Smart AI] - Updated flag: ' . ($updated ? 'true' : 'false'));
     
+    // Ensure we have valid paragraphs array
+    if (empty($paragraphs) || !is_array($paragraphs)) {
+        error_log('[Smart AI] No valid paragraphs to process');
+        return false;
+    }
+    error_log('[Smart AI] Link insertion summary:');
+    error_log('[Smart AI] - Links found in content: ' . count($used_anchors));
+    error_log('[Smart AI] - Links to insert: ' . count($links));
+    error_log('[Smart AI] - Links added: ' . $links_added);
+    error_log('[Smart AI] - Updated flag: ' . ($updated ? 'true' : 'false'));
+    
     if ($updated && $links_added > 0) {
         // Rebuild the content with paragraph tags
         $new_content = '';
+        $paragraphs = array_values(array_filter($paragraphs, 'trim')); // Remove empty paragraphs
+        
         foreach ($paragraphs as $p) {
-            if (!empty($p)) {
-                $new_content .= '<p>' . $p . '</p>' . "\n";
+            if (!empty(trim($p))) {
+                // Only wrap in <p> tags if not already wrapped
+                if (strpos(trim($p), '<p') !== 0) {
+                    $new_content .= '<p>' . trim($p) . '</p>' . "\n";
+                } else {
+                    $new_content .= trim($p) . "\n";
+                }
             }
         }
         
