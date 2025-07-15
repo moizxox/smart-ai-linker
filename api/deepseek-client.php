@@ -1,6 +1,55 @@
 <?php
-if (!defined('ABSPATH'))
+/**
+ * DeepSeek API Client
+ * 
+ * @package SmartAILinker
+ */
+
+// Check if required extensions are loaded
+if (!extension_loaded('curl')) {
+    error_log('[Smart AI] cURL extension is required but not loaded');
+    return [];
+}
+
+if (!extension_loaded('json')) {
+    error_log('[Smart AI] JSON extension is required but not loaded');
+    return [];
+}
+
+// Define cURL constants if not defined (for IDE support)
+if (!defined('CURLOPT_URL')) {
+    define('CURLOPT_URL', 10002);
+    define('CURLOPT_RETURNTRANSFER', 19913);
+    define('CURLOPT_POST', 47);
+    define('CURLOPT_POSTFIELDS', 10015);
+    define('CURLOPT_HTTPHEADER', 10023);
+    define('CURLOPT_TIMEOUT', 13);
+    define('CURLOPT_SSL_VERIFYPEER', 64);
+    define('CURLOPT_SSL_VERIFYHOST', 81);
+    define('CURLINFO_HTTP_CODE', 2097154);
+}
+
+// Make sure Exception class is available
+if (!class_exists('Exception')) {
+    class_alias('\Exception', 'Exception');
+}
+
+if (!defined('ABSPATH')) {
     exit;
+}
+
+// Define constants if not already defined
+if (!defined('JSON_ERROR_NONE')) {
+    define('JSON_ERROR_NONE', 0);
+}
+
+if (!defined('PREG_SET_ORDER')) {
+    define('PREG_SET_ORDER', 1);
+}
+
+if (!defined('FILTER_VALIDATE_URL')) {
+    define('FILTER_VALIDATE_URL', 273);
+}
 
 /**
  * DeepSeek API Integration
@@ -14,156 +63,241 @@ if (!defined('ABSPATH'))
  * @return array Array of link suggestions with 'anchor' and 'url' keys
  */
 function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
+    // Check if Exception class exists
+    if (!class_exists('Exception')) {
+        error_log('[Smart AI] Required Exception class not found');
+        return [];
+    }
+    
     // Get API key from options
     $api_key = get_option('smart_ai_linker_api_key', '');
     
     if (empty($api_key)) {
-        error_log('[Smart AI] DeepSeek API key not set');
+        $error_msg = 'DeepSeek API key not set in plugin settings';
+        error_log('[Smart AI] ' . $error_msg);
+        
         // Add admin notice if in admin area
-        if (is_admin()) {
-            add_action('admin_notices', function() {
+        if (is_admin() && !wp_doing_ajax()) {
+            add_action('admin_notices', function() use ($error_msg) {
                 ?>
                 <div class="notice notice-error">
-                    <p><strong>Smart AI Linker:</strong> DeepSeek API key is not set. Please <a href="<?php echo admin_url('admin.php?page=smart-ai-linker'); ?>">configure the plugin</a>.</p>
+                    <p><strong>Smart AI Linker:</strong> <?php echo esc_html($error_msg); ?>. 
+                    <a href="<?php echo esc_url(admin_url('admin.php?page=smart-ai-linker')); ?>">Configure the plugin</a>.</p>
                 </div>
                 <?php
             });
         }
         return [];
     }
-
-    // Get the site URL for context
-    $site_url = site_url();
-    $site_name = get_bloginfo('name');
     
-    // Get the post title for context
+    // Check if cURL is available
+    if (!function_exists('curl_init')) {
+        error_log('[Smart AI] cURL is not available on this server');
+        return [];
+    }
+
+    // Get site information for context
+    $site_url = rtrim(site_url(), '/');
+    $site_name = get_bloginfo('name');
     $post_title = get_the_title($post_id);
     
     // Get existing links to avoid suggesting duplicates
     $existing_links = get_post_meta($post_id, '_smart_ai_linker_added_links', true) ?: [];
     $existing_urls = array_column($existing_links, 'url');
     
-    // Prepare the prompt with more context
+    // Get a list of existing posts/pages for context
+    $existing_posts = get_posts([
+        'post_type' => get_post_types(['public' => true]),
+        'post_status' => 'publish',
+        'posts_per_page' => 50, // Limit to 50 most recent posts for context
+        'exclude' => [$post_id], // Exclude current post
+        'fields' => 'ids',
+    ]);
+    
+    $post_titles = [];
+    foreach ($existing_posts as $pid) {
+        $post_titles[] = get_the_title($pid) . ' (' . get_permalink($pid) . ')';
+    }
+    
+    // Prepare the prompt with more context and instructions
     $prompt = "You are an expert content strategist helping to improve internal linking for a WordPress website.\n\n" .
-             "Website: {$site_name} ({$site_url})\n" .
-             "Current Post Title: {$post_title}\n\n" .
-             "Analyze the following blog post content and suggest up to 7 relevant internal links. " . 
-             "Only suggest links to other posts/pages on the same WordPress site. " .
-             "Do not suggest links that already exist in the post. " .
-             "For each suggestion, provide the anchor text and the full target URL. \n\n" .
-             "Format your response as a valid JSON array of objects, each with 'anchor' and 'url' keys.\n" .
+             "WEBSITE: {$site_name} ({$site_url})\n" .
+             "CURRENT POST TITLE: {$post_title}\n\n" .
+             "AVAILABLE PAGES/POSTS TO LINK TO:\n" . 
+             implode("\n", array_slice($post_titles, 0, 20)) . 
+             (count($post_titles) > 20 ? "\n...and " . (count($post_titles) - 20) . " more" : "") . 
+             "\n\n" .
+             "INSTRUCTIONS:\n" .
+             "1. Analyze the following blog post content and suggest relevant internal links.\n" .
+             "2. Only suggest links to other posts/pages on the same WordPress site ({$site_url}).\n" .
+             "3. Choose anchor text that naturally fits the content and provides context.\n" .
+             "4. Do not suggest links that already exist in the post.\n" .
+             "5. Prioritize links that add value to the reader.\n" .
+             "6. Return between 3-7 suggestions unless more are clearly needed.\n\n" .
+             "RESPONSE FORMAT:\n" .
+             "Return a valid JSON array of objects, each with 'anchor' and 'url' keys.\n" .
              "Example: [{\"anchor\": \"example text\", \"url\": \"https://example.com/post/\"}]\n\n" .
-             "Content to analyze:\n" .
-             $content;
+             "CONTENT TO ANALYZE:\n" .
+             substr($content, 0, 10000); // Limit content length to avoid API limits
 
     // Prepare the API request
-    $api_url = 'https://api.deepseek.com/v1/chat/completions'; // Replace with actual DeepSeek endpoint
+    $api_url = 'https://api.deepseek.com/v1/chat/completions';
     
-    $headers = array(
+    $headers = [
         'Content-Type' => 'application/json',
         'Authorization' => 'Bearer ' . $api_key,
-    );
+        'Accept' => 'application/json',
+    ];
 
-    $body = array(
-        'model' => 'deepseek-chat', // Replace with actual model name
-        'messages' => array(
-            array(
+    $body = [
+        'model' => 'deepseek-chat',
+        'messages' => [
+            [
+                'role' => 'system',
+                'content' => 'You are a helpful assistant that suggests relevant internal links for WordPress content.'
+            ],
+            [
                 'role' => 'user',
                 'content' => $prompt
-            )
-        ),
-        'max_tokens' => 1000,
-        'temperature' => 0.7,
-    );
+            ]
+        ],
+        'max_tokens' => 1500,
+        'temperature' => 0.5, // Lower temperature for more focused results
+        'top_p' => 0.9,
+    ];
+
+    // Log the API request (without the API key)
+    $loggable_body = $body;
+    $loggable_body['messages'][1]['content'] = substr($loggable_body['messages'][1]['content'], 0, 200) . '...';
+    $loggable_headers = $headers;
+    if (isset($loggable_headers['Authorization'])) {
+        $loggable_headers['Authorization'] = 'Bearer ' . substr($api_key, 0, 4) . '...';
+    }
+    
+    // Set up the request arguments
+    $args = [
+        'method'      => 'POST',
+        'timeout'     => 120, // 2 minutes timeout
+        'sslverify'   => false, // Bypass SSL verification if needed
+        'redirection' => 5,
+        'httpversion' => '1.1',
+        'blocking'    => true,
+        'headers'     => $headers,
+        'body'        => json_encode($body),
+        'data_format' => 'body',
+    ];
+    
+    // Log request details
+    error_log('[Smart AI] Sending request to DeepSeek API: ' . print_r([
+        'url' => $api_url,
+        'headers' => $loggable_headers,
+        'body' => $loggable_body,
+        'args' => array_merge($args, ['body' => $loggable_body])
+    ], true));
 
     // Make the API request with error handling
-    $response = wp_remote_post($api_url, array(
-        'headers' => $headers,
-        'body' => json_encode($body),
-        'timeout' => 30, // 30 seconds timeout
-    ));
-
-    // Check for errors
+    $response = wp_remote_post($api_url, $args);
+    
+    // Log response details
+    $response_code = wp_remote_retrieve_response_code($response);
+    $response_body = wp_remote_retrieve_body($response);
+    $response_headers = wp_remote_retrieve_headers($response);
+    
+    error_log('[Smart AI] DeepSeek API response code: ' . $response_code);
+    error_log('[Smart AI] DeepSeek API response headers: ' . print_r($response_headers, true));
+    error_log('[Smart AI] DeepSeek API response body: ' . $response_body);
+    
+    // Check for errors in the WordPress HTTP API
     if (is_wp_error($response)) {
         $error_message = $response->get_error_message();
-        error_log('[Smart AI] DeepSeek API error: ' . $error_message);
+        error_log('[Smart AI] WordPress HTTP API request failed: ' . $error_message);
         
-        // Add admin notice for API errors
-        if (is_admin()) {
-            add_action('admin_notices', function() use ($error_message) {
-                ?>
-                <div class="notice notice-error">
-                    <p><strong>Smart AI Linker API Error:</strong> <?php echo esc_html($error_message); ?></p>
-                </div>
-                <?php
-            });
+        // Try a direct cURL request as a fallback
+        error_log('[Smart AI] Attempting direct cURL request as fallback...');
+        $ch = curl_init();
+        
+        curl_setopt_array($ch, [
+            CURLOPT_URL => $api_url,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($body),
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $api_key,
+                'Accept: application/json'
+            ],
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => 0
+        ]);
+        
+        $response_body = curl_exec($ch);
+        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curl_error = curl_error($ch);
+        curl_close($ch);
+        
+        if ($curl_error) {
+            error_log('[Smart AI] cURL request failed: ' . $curl_error);
+            return [];
         }
         
-        return [];
+        // Process the direct cURL response
+        $response = [
+            'response' => ['code' => $http_code],
+            'body' => $response_body
+        ];
     }
 
-    $response_code = wp_remote_retrieve_response_code($response);
-    $response_body = json_decode(wp_remote_retrieve_body($response), true);
-
-    if ($response_code !== 200) {
-        error_log('[Smart AI] DeepSeek API error: ' . print_r($response_body, true));
-        return [];
-    }
-
-    // Extract the AI response
-    $ai_response = $response_body['choices'][0]['message']['content'] ?? '';
+    // Get the response code and body
+    $response_code = is_array($response) ? $response['response']['code'] : 0;
+    $response_body = is_array($response) ? $response['body'] : '';
     
-    // Try to parse the JSON response
-    $suggestions = [];
+    // Try to decode the response body
+    $response_data = json_decode($response_body, true);
     
-    // First, try to extract JSON from the response
-    if (preg_match('/\[.*\]/s', $ai_response, $matches)) {
-        $json_str = $matches[0];
-        $suggestions = json_decode($json_str, true);
+    // Log a truncated version of the response for debugging
+    $log_response = $response_data;
+    
+    // Check if we have a valid response with choices
+    if (!empty($response_data['choices'][0]['message']['content'])) {
+        $ai_response = $response_data['choices'][0]['message']['content'];
         
-        // If JSON parsing failed, try to clean up the response
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            // Try to extract anchor and URL pairs using regex as fallback
-            preg_match_all('/"anchor"\s*:\s*"(.*?)"\s*,\s*"url"\s*:\s*"(.*?)"/', $ai_response, $matches, PREG_SET_ORDER);
-            
-            foreach ($matches as $match) {
-                $suggestions[] = [
-                    'anchor' => $match[1],
-                    'url' => $match[2]
-                ];
-            }
+        // Log the raw AI response (truncated for logs)
+        error_log('[Smart AI] Raw AI response: ' . substr($ai_response, 0, 500) . 
+                 (strlen($ai_response) > 500 ? '...' : ''));
+        
+        // Extract JSON from markdown code block if present
+        $matches = [];
+        if (preg_match('/```(?:json\n)?(.*?)```/s', $ai_response, $matches) && !empty($matches[1])) {
+            $ai_response = trim($matches[1]);
+            error_log('[Smart AI] Extracted JSON from code block: ' . $ai_response);
+        }
+        
+        // Try to parse the JSON
+        $suggestions = json_decode($ai_response, true);
+        
+        // If successful, return the suggestions
+        if (json_last_error() === JSON_ERROR_NONE && is_array($suggestions)) {
+            error_log('[Smart AI] Successfully parsed ' . count($suggestions) . ' link suggestions');
+            return $suggestions;
+        } else {
+            error_log('[Smart AI] Failed to parse JSON response: ' . json_last_error_msg());
         }
     }
-
-    // Validate and sanitize suggestions
-    $valid_suggestions = [];
     
-    if (is_array($suggestions)) {
-        foreach ($suggestions as $suggestion) {
-            if (!empty($suggestion['anchor']) && !empty($suggestion['url'])) {
-                // Basic validation - check if URL is internal
-                $url = esc_url_raw($suggestion['url']);
-                $site_url = site_url();
-                
-                if (strpos($url, $site_url) === 0) {
-                    $valid_suggestions[] = [
-                        'anchor' => sanitize_text_field($suggestion['anchor']),
-                        'url' => $url
-                    ];
-                    
-                    // Limit to 7 suggestions
-                    if (count($valid_suggestions) >= 7) {
-                        break;
-                    }
-                }
-            }
-        }
+    // Log the response data for debugging if we get here
+    error_log('[Smart AI] Invalid or empty response data: ' . print_r($response_data, true));
+    
+    // Log the error for admin notice if needed
+    if (is_admin() && !wp_doing_ajax()) {
+        add_action('admin_notices', function() {
+            ?>
+            <div class="notice notice-error is-dismissible">
+                <p><strong>Smart AI Linker Error:</strong> Failed to get valid response from DeepSeek API. Please check the error log for details.</p>
+            </div>
+            <?php
+        });
     }
-
-    // Store the suggestions in post meta for reference
-    if (!empty($valid_suggestions)) {
-        update_post_meta($post_id, '_smart_ai_linker_suggestions', $valid_suggestions);
-    }
-
-    return $valid_suggestions;
+    
+    return [];
 }

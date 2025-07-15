@@ -28,8 +28,69 @@ define('SMARTLINK_AI_BASENAME', plugin_basename(__FILE__));
 // Include compatibility checks
 require_once SMARTLINK_AI_PATH . 'includes/compatibility.php';
 
-// Only proceed if compatibility check passes
-if (smart_ai_linker_check_requirements() === true) {
+// Include test files in debug mode
+if (defined('WP_DEBUG') && WP_DEBUG && !defined('SMART_AI_LINKER_TEST_LOADED')) {
+    define('SMART_AI_LINKER_TEST_LOADED', true);
+    
+    // Check if the test file exists before including it
+    $test_file = SMARTLINK_AI_PATH . 'tests/test-internal-linking.php';
+    if (file_exists($test_file)) {
+        require_once $test_file;
+    }
+    
+    // Add test menu
+    add_action('admin_menu', function() {
+        // Check if the menu already exists
+        global $menu, $submenu;
+        $menu_exists = false;
+        
+        // Check if the main menu exists
+        foreach ($menu as $item) {
+            if (isset($item[2]) && $item[2] === 'smart-ai-linker') {
+                $menu_exists = true;
+                break;
+            }
+        }
+        
+        // If the main menu doesn't exist, create it
+        if (!$menu_exists) {
+            add_menu_page(
+                'Smart AI Linker',
+                'Smart AI Linker',
+                'manage_options',
+                'smart-ai-linker',
+                '',
+                'dashicons-admin-links',
+                30
+            );
+            
+            // Remove the default submenu item that gets added
+            remove_submenu_page('smart-ai-linker', 'smart-ai-linker');
+        }
+        
+        // Now add our test page
+        add_submenu_page(
+            'smart-ai-linker',
+            'API Connection Test',
+            'API Test',
+            'manage_options',
+            'smart-ai-linker-test-connection',
+            function() {
+                $test_connection_file = SMARTLINK_AI_PATH . 'tests/test-connection.php';
+                if (file_exists($test_connection_file)) {
+                    require_once $test_connection_file;
+                } else {
+                    echo '<div class="notice notice-error"><p>Test connection file not found.</p></div>';
+                }
+            }
+        );
+    }, 11); // Higher priority to ensure main menu is processed first
+}
+
+// Only proceed if compatibility check passes and the plugin isn't already loaded
+if (smart_ai_linker_check_requirements() === true && !defined('SMART_AI_LINKER_LOADED')) {
+    define('SMART_AI_LINKER_LOADED', true);
+    
     // Include core functionality
     require_once SMARTLINK_AI_PATH . 'includes/internal-linking.php';
     require_once SMARTLINK_AI_PATH . 'includes/silo-structure.php';
