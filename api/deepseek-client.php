@@ -109,13 +109,14 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
     $existing_posts = get_posts([
         'post_type' => ['post', 'page'], // Include both posts and pages
         'post_status' => 'publish',
-        'posts_per_page' => 100, // Increase to get more content for better suggestions
+        'posts_per_page' => 200, // Increased to get more content for better suggestions
         'exclude' => [$post_id], // Exclude current post
         'post__not_in' => [$post_id], // Double ensure current post is excluded
         'fields' => 'ids',
         'orderby' => 'date',
         'order' => 'DESC',
-        'post_parent' => 0, // Only top-level pages
+        'post_parent__in' => [0], // Include both top-level and child pages
+        'suppress_filters' => false, // Ensure all filters are applied
     ]);
     
     // If no posts found, return empty array
@@ -134,24 +135,31 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
              "WEBSITE: {$site_name} ({$site_url})\n" .
              "CURRENT POST TITLE: {$post_title}\n\n" .
              "AVAILABLE PAGES/POSTS TO LINK TO (format: Title - URL):\n" . 
-             implode("\n", array_slice($post_titles, 0, 30)) . 
-             (count($post_titles) > 30 ? "\n...and " . (count($post_titles) - 30) . " more" : "") . 
+             implode("\n", array_slice($post_titles, 0, 50)) . 
+             (count($post_titles) > 50 ? "\n...and " . (count($post_titles) - 50) . " more" : "") . 
              "\n\n" .
              "CRITICAL INSTRUCTIONS:\n" .
-             "1. Analyze the content and suggest only the most relevant internal links.\n" .
-             "2. Choose anchor text that:\n" .
+             "1. Analyze the content and suggest 7-10 relevant internal links.\n" .
+             "2. Prioritize linking to both pages and posts that are most relevant.\n" .
+             "3. Choose anchor text that:\n" .
              "   - Is 2-4 words long\n" .
              "   - Appears naturally in the content\n" .
              "   - Is not a proper noun or common phrase\n" .
              "   - Doesn't contain special characters, quotes, or HTML tags\n" .
-             "3. Only suggest links that provide clear value to the reader.\n" .
-             "4. Never suggest linking the same URL more than once.\n" .
-             "5. Ensure the link makes sense in context and adds value.\n\n" .
-             "RESPONSE FORMAT:\n" .
-             "Return a valid JSON array of objects, each with 'anchor' and 'url' keys.\n" .
-             "Example: [{\"anchor\": \"content strategy guide\", \"url\": \"https://example.com/strategy/\"}]\n\n" .
-             "CONTENT TO ANALYZE (find natural anchor text in this content):\n" .
-             substr($content, 0, 8000); // Slightly reduced to ensure quality over quantity
+             "4. Only suggest links that provide clear value to the reader.\n" .
+             "5. Never suggest linking the same URL more than once.\n" .
+             "6. Ensure the link makes sense in context and adds value.\n" .
+             "7. Include a good mix of both post and page links when relevant.\n\n" .
+             "IMPORTANT: Your response MUST be a valid JSON array of objects. Each object MUST have 'anchor' and 'url' keys.\n" .
+             "DO NOT include any text before or after the JSON array.\n" .
+             "DO NOT include code block markers (```json or ```).\n" .
+             "DO NOT include any explanations or notes.\n\n" .
+             "Example response:\n" .
+             "[{\"anchor\": \"content strategy guide\", \"url\": \"https://example.com/strategy/\"},\
+" .
+             " {\"anchor\": \"WordPress optimization\", \"url\": \"https://example.com/optimize/\"}]\n\n" .
+             "Now analyze this content and provide your response:\n" .
+             substr($content, 0, 10000); // Increased content limit for better context
 
     // Prepare the API request
     $api_url = 'https://api.deepseek.com/v1/chat/completions';
@@ -299,11 +307,37 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
             }
         }
         
-        // If we still don't have valid suggestions, return empty array
+        // If we still don't have valid suggestions, try to fix common JSON issues
         if (json_last_error() !== JSON_ERROR_NONE || !is_array($suggestions)) {
-            error_log('[Smart AI] Failed to parse JSON response: ' . json_last_error_msg());
-            error_log('[Smart AI] Response content: ' . substr($ai_response, 0, 500));
-            return [];
+            error_log('[Smart AI] Initial JSON parse failed, attempting to fix common issues');
+            
+            // Try to fix common JSON issues
+            $ai_response = trim($ai_response);
+            
+            // Remove any trailing commas before closing brackets/braces
+            $ai_response = preg_replace('/,\s*([}\]])/m', '$1', $ai_response);
+            
+            // Fix any unescaped quotes within strings
+            $ai_response = preg_replace_callback('/"([^"]*?)"/', function($matches) {
+                return '"' . str_replace('"', '\"', $matches[1]) . '"';
+            }, $ai_response);
+            
+            // Try parsing again
+            $suggestions = json_decode($ai_response, true);
+            
+            // If still failing, try to extract just the array portion
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                if (preg_match('/\[(?:\s*\{.*?\}\s*,?\s*)+\]/s', $ai_response, $matches)) {
+                    $suggestions = json_decode($matches[0], true);
+                }
+            }
+            
+            // If we still don't have valid suggestions, log and return empty array
+            if (json_last_error() !== JSON_ERROR_NONE || !is_array($suggestions)) {
+                error_log('[Smart AI] Failed to parse JSON response after fixes: ' . json_last_error_msg());
+                error_log('[Smart AI] Response content: ' . substr($ai_response, 0, 500));
+                return [];
+            }
         }
         
         // Filter out any suggestions that point to the current post or are empty

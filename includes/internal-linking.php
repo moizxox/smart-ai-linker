@@ -99,9 +99,12 @@ function smart_ai_linker_generate_internal_links($post_ID, $post, $update) {
     
     error_log('[Smart AI] Received ' . count($suggestions) . ' link suggestions');
     
-    // Limit the number of links based on settings
-    $max_links = (int) get_option('smart_ai_linker_max_links', 7);
+    // Ensure we have the maximum number of links based on settings
+    $max_links = max(7, (int) get_option('smart_ai_linker_max_links', 7));
     $suggestions = array_slice($suggestions, 0, $max_links);
+    
+    // Log the number of links we're trying to insert
+    error_log('[Smart AI] Will attempt to insert up to ' . count($suggestions) . ' links into the post');
 
     // Insert the links into the post
     error_log('[Smart AI] Attempting to insert links into post ' . $post_ID);
@@ -162,11 +165,18 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
 
     // Process each paragraph to find good places to insert links
     foreach ($paragraphs as $p_index => $paragraph) {
+        // If we've added all possible links, break out of the loop
+        if (count($used_urls) >= count($links)) {
+            error_log('[Smart AI] All possible links have been added, stopping processing');
+            break;
+        }
+        
         // Store the original paragraph for comparison
         $original_paragraph = $paragraph;
         
-        // Skip short paragraphs
-        if (str_word_count(strip_tags($paragraph)) < 5) {
+        // Skip short paragraphs (minimum 3 words instead of 5 to allow more linking opportunities)
+        if (str_word_count(strip_tags($paragraph)) < 3) {
+            error_log('[Smart AI] Skipping short paragraph');
             continue;
         }
 
