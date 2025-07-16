@@ -105,14 +105,17 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
     $existing_links = get_post_meta($post_id, '_smart_ai_linker_added_links', true) ?: [];
     $existing_urls = array_column($existing_links, 'url');
     
-    // Get a list of existing posts/pages for context
+    // Get a list of existing posts and pages for context
     $existing_posts = get_posts([
-        'post_type' => get_post_types(['public' => true]),
+        'post_type' => ['post', 'page'], // Include both posts and pages
         'post_status' => 'publish',
-        'posts_per_page' => 50, // Limit to 50 most recent posts for context
+        'posts_per_page' => 100, // Increase to get more content for better suggestions
         'exclude' => [$post_id], // Exclude current post
         'post__not_in' => [$post_id], // Double ensure current post is excluded
         'fields' => 'ids',
+        'orderby' => 'date',
+        'order' => 'DESC',
+        'post_parent' => 0, // Only top-level pages
     ]);
     
     // If no posts found, return empty array
@@ -127,26 +130,28 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
     }
     
     // Prepare the prompt with more context and instructions
-    $prompt = "You are an expert content strategist helping to improve internal linking for a WordPress website.\n\n" .
+    $prompt = "You are an expert content strategist helping to improve internal linking for a WordPress website. Follow these guidelines carefully:\n\n" .
              "WEBSITE: {$site_name} ({$site_url})\n" .
              "CURRENT POST TITLE: {$post_title}\n\n" .
-             "AVAILABLE PAGES/POSTS TO LINK TO:\n" . 
-             implode("\n", array_slice($post_titles, 0, 20)) . 
-             (count($post_titles) > 20 ? "\n...and " . (count($post_titles) - 20) . " more" : "") . 
+             "AVAILABLE PAGES/POSTS TO LINK TO (format: Title - URL):\n" . 
+             implode("\n", array_slice($post_titles, 0, 30)) . 
+             (count($post_titles) > 30 ? "\n...and " . (count($post_titles) - 30) . " more" : "") . 
              "\n\n" .
-             "INSTRUCTIONS:\n" .
-             "1. Analyze the following blog post content and suggest relevant internal links.\n" .
-             "2. Only suggest links to other posts/pages on the same WordPress site ({$site_url}).\n" .
-             "3. Choose anchor text that naturally fits the content and provides context.\n" .
-             "4. Do not suggest links that already exist in the post.\n" .
-             "5. Prioritize links that add value to the reader.\n" .
-             "6. Return between 3-7 suggestions unless more are clearly needed.\n\n" .
-             "IMPORTANT: DO NOT suggest links to the current post (ID: {$post_id}, Title: {$post_title}).\n" .
+             "CRITICAL INSTRUCTIONS:\n" .
+             "1. Analyze the content and suggest only the most relevant internal links.\n" .
+             "2. Choose anchor text that:\n" .
+             "   - Is 2-4 words long\n" .
+             "   - Appears naturally in the content\n" .
+             "   - Is not a proper noun or common phrase\n" .
+             "   - Doesn't contain special characters, quotes, or HTML tags\n" .
+             "3. Only suggest links that provide clear value to the reader.\n" .
+             "4. Never suggest linking the same URL more than once.\n" .
+             "5. Ensure the link makes sense in context and adds value.\n\n" .
              "RESPONSE FORMAT:\n" .
              "Return a valid JSON array of objects, each with 'anchor' and 'url' keys.\n" .
-             "Example: [{\"anchor\": \"example text\", \"url\": \"https://example.com/other-post/\"}]\n\n" .
-             "CONTENT TO ANALYZE:\n" .
-             substr($content, 0, 10000); // Limit content length to avoid API limits
+             "Example: [{\"anchor\": \"content strategy guide\", \"url\": \"https://example.com/strategy/\"}]\n\n" .
+             "CONTENT TO ANALYZE (find natural anchor text in this content):\n" .
+             substr($content, 0, 8000); // Slightly reduced to ensure quality over quantity
 
     // Prepare the API request
     $api_url = 'https://api.deepseek.com/v1/chat/completions';
@@ -162,16 +167,18 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
         'messages' => [
             [
                 'role' => 'system',
-                'content' => 'You are a helpful assistant that suggests relevant internal links for WordPress content.'
+                'content' => 'You are an expert content strategist specializing in natural internal linking. You help create meaningful connections between content while maintaining readability and user experience.'
             ],
             [
                 'role' => 'user',
                 'content' => $prompt
             ]
         ],
-        'max_tokens' => 1500,
-        'temperature' => 0.5, // Lower temperature for more focused results
-        'top_p' => 0.9,
+        'max_tokens' => 2000,
+        'temperature' => 0.3, // Lower temperature for more predictable, focused results
+        'top_p' => 0.8,
+        'frequency_penalty' => 0.5, // Discourage repetition
+        'presence_penalty' => 0.5, // Encourage topic variety
     ];
 
     // Log the API request (without the API key)
