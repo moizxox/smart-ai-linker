@@ -27,6 +27,9 @@ define('SMARTLINK_AI_BASENAME', plugin_basename(__FILE__));
 // Include compatibility checks
 require_once SMARTLINK_AI_PATH . 'includes/compatibility.php';
 
+// Include silo structure functionality
+require_once SMARTLINK_AI_PATH . 'includes/silo-structure.php';
+
 // Include test files in debug mode
 if (defined('WP_DEBUG') && WP_DEBUG && !defined('SMART_AI_LINKER_TEST_LOADED')) {
     define('SMART_AI_LINKER_TEST_LOADED', true);
