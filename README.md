@@ -62,10 +62,25 @@ A powerful WordPress plugin that uses advanced AI to automatically create meanin
 4. Use "Clear Links" to remove all AI-generated links from the content
 
 ### Bulk Processing
-1. Go to Posts/Pages list
-2. Select multiple items
-3. Choose "Generate AI Links" from the bulk actions dropdown
+
+#### Process Multiple Posts/Pages
+1. Navigate to Posts or Pages in WordPress admin
+2. Select the posts/pages you want to process
+3. Choose "Generate AI Links" from the Bulk Actions dropdown
 4. Click "Apply" to process all selected items
+
+#### Process All Unprocessed Content
+1. Go to Posts or Pages in WordPress admin
+2. Look for the "Process All Unprocessed" button above the posts list
+3. Click the button to automatically process all unprocessed posts/pages
+4. A progress indicator will show the status
+5. You'll receive a success message when complete
+
+#### How It Works
+- The plugin tracks which posts have been processed
+- Only unprocessed posts will be included in bulk actions
+- You can reprocess posts by manually clearing the "Processed" flag in post meta
+- The system automatically skips posts that are too short or already processed
 
 ## ❓ Frequently Asked Questions
 

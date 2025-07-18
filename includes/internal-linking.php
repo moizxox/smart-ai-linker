@@ -17,54 +17,64 @@ add_action('save_post', 'smart_ai_linker_generate_internal_links', 20, 3);
  * @param int     $post_ID The post ID
  * @param WP_Post $post    The post object
  * @param bool    $update  Whether this is an existing post being updated
+ * @return int|WP_Error The post ID on success, WP_Error on failure
+ * 
+ * @var array<array{anchor: string, url: string}> $suggestions Array of link suggestions
  */
-function smart_ai_linker_generate_internal_links($post_ID, $post, $update) {
+function smart_ai_linker_generate_internal_links($post_ID, $post = null, $update = null) {
+    // Ensure we have a valid post object
+    if (is_null($post)) {
+        $post = get_post($post_ID);
+        if (!$post) {
+            return new WP_Error('invalid_post', 'Invalid post ID');
+        }
+    }
     error_log('[Smart AI] Starting internal link generation for post ' . $post_ID);
     
-    // Don't run on autosaves or revisions
-    if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
-        error_log('[Smart AI] Skipping - this is an autosave');
-        return;
+    // Skip if auto-linking is disabled or this is an autosave
+    if (!get_option('smart_ai_linker_enable_auto_linking', true)) {
+        error_log('[Smart AI] Auto-linking is disabled in settings');
+        return $post_ID;
     }
-    if (wp_is_post_revision($post_ID) || wp_is_post_autosave($post_ID)) {
-        error_log('[Smart AI] Skipping - this is a revision or autosave');
-        return;
+    
+    // Skip autosaves and revisions
+    if (wp_is_post_autosave($post_ID) || wp_is_post_revision($post_ID)) {
+        error_log('[Smart AI] Skipping autosave/revision');
+        return $post_ID;
+    }
+    
+    // Skip if this is not a published post or page
+    if (!in_array($post->post_status, ['publish', 'future', 'draft', 'pending', 'private'], true)) {
+        error_log('[Smart AI] Skipping post with status: ' . $post->post_status);
+        return $post_ID;
     }
 
     // Only run for published posts
     if ($post->post_status !== 'publish') {
         error_log('[Smart AI] Skipping - post status is ' . $post->post_status);
-        return;
-    }
-    
-    error_log('[Smart AI] Post is published, proceeding with link generation');
-
-    // Check if auto-linking is enabled
-    $enable_auto_linking = get_option('smart_ai_linker_enable_auto_linking', '1');
-    error_log('[Smart AI] Auto-linking setting: ' . ($enable_auto_linking ? 'enabled' : 'disabled'));
-    
-    if (!$enable_auto_linking) {
-        error_log('[Smart AI] Auto-linking is disabled in settings');
-        return;
+        return $post_ID;
     }
 
-    // Check if this is a post type we want to process
-    $post_types = get_option('smart_ai_linker_post_types', array('post'));
-    error_log('[Smart AI] Checking post type: ' . $post->post_type);
-    error_log('[Smart AI] Allowed post types: ' . print_r($post_types, true));
-    
-    if (!in_array($post->post_type, (array)$post_types, true)) {
-        error_log('[Smart AI] Post type not enabled for linking: ' . $post->post_type);
-        return;
+    // Skip if post type is not enabled for linking
+    $enabled_post_types = get_option('smart_ai_linker_post_types', array('post'));
+    if (!in_array($post->post_type, (array) $enabled_post_types)) {
+        error_log('[Smart AI] Post type is not enabled for linking');
+        return $post_ID;
     }
     error_log('[Smart AI] Post type is enabled for linking');
 
     // Get the post content and clean it up for processing
     $content = $post->post_content;
     
-    // First, decode HTML entities and normalize whitespace
-    $content = html_entity_decode($content, ENT_QUOTES | ENT_HTML5, 'UTF-8');
-    $content = normalize_whitespace($content);
+    // First, decode HTML entities and clean up content
+    if (function_exists('wp_strip_all_tags')) {
+        $content = wp_strip_all_tags($content, true);
+    } else {
+        $content = strip_tags($content);
+    }
+    
+    // Normalize whitespace - replace multiple spaces/tabs with single space
+    $content = preg_replace('/\s+/', ' ', $content);
     
     // Remove any existing smart-ai-link spans to prevent duplicates
     $content = preg_replace('/<a\s+[^>]*class=["\']smart-ai-link["\'][^>]*>.*?<\/a>/i', '', $content);
@@ -74,27 +84,57 @@ function smart_ai_linker_generate_internal_links($post_ID, $post, $update) {
     
     if (empty($content)) {
         error_log('[Smart AI] Empty post content, skipping');
-        return;
+        return $post_ID;
+    }
+    
+    // Ensure content is a string before processing
+    if (!is_string($content)) {
+        error_log('[Smart AI] Content is not a string, converting...');
+        $content = (string) $content;
     }
     
     // Remove any existing links to avoid duplicates
-    $content = preg_replace('/<a\b[^>]*>(.*?)<\/a>/i', '$1', $content);
+    if (is_string($content)) {
+        $content = preg_replace('/<a\b[^>]*>(.*?)<\/a>/i', '$1', $content);
+    } else {
+        error_log('[Smart AI] Content is not a string, cannot process links');
+        return $post_ID;
+    }
     
     // Strip shortcodes and tags for the AI analysis
     $clean_content = wp_strip_all_tags(strip_shortcodes($content));
     
     if (empty($clean_content)) {
         error_log('[Smart AI] No content available for analysis after cleaning');
-        return;
+        return $post_ID;
     }
 
     // Get AI suggestions for internal links
     error_log('[Smart AI] Getting AI suggestions for post ' . $post_ID);
-    $suggestions = smart_ai_linker_get_ai_link_suggestions($clean_content, $post_ID);
     
-    if (empty($suggestions) || !is_array($suggestions)) {
+    // Ensure we're passing a string to the function
+    $content_for_analysis = is_string($clean_content) ? $clean_content : '';
+    if (empty($content_for_analysis)) {
+        error_log('[Smart AI] No valid content available for analysis');
+        return $post_ID;
+    }
+    
+    $suggestions = smart_ai_linker_get_ai_link_suggestions($content_for_analysis, $post_ID);
+    
+    if (is_wp_error($suggestions)) {
+        error_log('[Smart AI] Error getting AI suggestions: ' . $suggestions->get_error_message());
+        return $post_ID; // Still return post ID to avoid breaking the save process
+    }
+    
+    // Ensure suggestions is an array
+    if (!is_array($suggestions)) {
+        error_log('[Smart AI] Invalid suggestions format, expected array');
+        return $post_ID;
+    }
+    
+    if (empty($suggestions)) {
         error_log('[Smart AI] No valid link suggestions received');
-        return;
+        return $post_ID;
     }
     
     error_log('[Smart AI] Received ' . count($suggestions) . ' link suggestions');
@@ -106,33 +146,97 @@ function smart_ai_linker_generate_internal_links($post_ID, $post, $update) {
     // Log the number of links we're trying to insert
     error_log('[Smart AI] Will attempt to insert up to ' . count($suggestions) . ' links into the post');
 
-    // Insert the links into the post
-    error_log('[Smart AI] Attempting to insert links into post ' . $post_ID);
-    $result = smart_ai_linker_insert_links_into_post($post_ID, $suggestions);
+    // Insert the links into the post content
+    error_log('[Smart AI] Inserting ' . count($suggestions) . ' links into post ' . $post_ID);
     
-    if ($result) {
-        // Store when we last processed this post
-        update_post_meta($post_ID, '_smart_ai_linker_processed', current_time('mysql'));
-        error_log('[Smart AI] Successfully added ' . count($suggestions) . ' internal links to post ' . $post_ID);
-        
-        // Store the added links for reference
-        update_post_meta($post_ID, '_smart_ai_linker_added_links', $suggestions);
-    } else {
-        error_log('[Smart AI] Failed to insert links into post ' . $post_ID);
+    // Ensure we have a valid array of suggestions
+    if (!is_array($suggestions)) {
+        $error_msg = 'Invalid suggestions format, expected array';
+        error_log('[Smart AI] ' . $error_msg);
+        return new WP_Error('invalid_suggestions', $error_msg);
     }
+    
+    // Convert suggestions to the expected format with 'anchor' and 'url' keys
+    $formatted_suggestions = [];
+    foreach ($suggestions as $suggestion) {
+        if (is_array($suggestion) && isset($suggestion['anchor_text']) && isset($suggestion['url'])) {
+            $formatted_suggestions[] = (object) [
+                'anchor' => $suggestion['anchor_text'],
+                'url' => $suggestion['url']
+            ];
+        } elseif (is_object($suggestion) && isset($suggestion->anchor_text) && isset($suggestion->url)) {
+            $formatted_suggestions[] = (object) [
+                'anchor' => $suggestion->anchor_text,
+                'url' => $suggestion->url
+            ];
+        } elseif (is_array($suggestion) && isset($suggestion['anchor']) && isset($suggestion['url'])) {
+            $formatted_suggestions[] = (object) [
+                'anchor' => $suggestion['anchor'],
+                'url' => $suggestion['url']
+            ];
+        } elseif (is_object($suggestion) && isset($suggestion->anchor) && isset($suggestion->url)) {
+            $formatted_suggestions[] = (object) [
+                'anchor' => $suggestion->anchor,
+                'url' => $suggestion->url
+            ];
+        } else {
+            error_log('[Smart AI] Invalid suggestion format: ' . print_r($suggestion, true));
+        }
+    }
+    
+    if (empty($formatted_suggestions)) {
+        error_log('[Smart AI] No valid link suggestions found');
+        return $post_ID;
+    }
+    
+    error_log('[Smart AI] Processed ' . count($formatted_suggestions) . ' valid link suggestions');
+    
+    // Ensure we're passing an array of objects to the function
+    $result = smart_ai_linker_insert_links_into_post($post_ID, $formatted_suggestions);
+    
+    // Log the result of the link insertion
+    if (is_wp_error($result)) {
+        error_log('[Smart AI] Error inserting links: ' . $result->get_error_message());
+    } elseif ($result === false) {
+        error_log('[Smart AI] Failed to insert links into post ' . $post_ID);
+    } else {
+        error_log('[Smart AI] Successfully inserted links into post ' . $post_ID);
+    }
+    
+    if (is_wp_error($result)) {
+        error_log('[Smart AI] Error inserting links: ' . $result->get_error_message());
+        return $post_ID;
+    }
+    
+    // Mark post as processed and store the links
+    $result1 = update_post_meta($post_ID, '_smart_ai_linker_processed', current_time('mysql'));
+    $result2 = update_post_meta($post_ID, '_smart_ai_linker_added_links', $suggestions);
+    
+    if ($result1 === false || $result2 === false) {
+        $error_message = 'Failed to update post meta for post ' . $post_ID;
+        error_log('[Smart AI] ' . $error_message);
+        // Still return post ID to avoid breaking the save process
+    } else {
+        error_log('[Smart AI] Successfully processed post ' . $post_ID . ' with ' . count($suggestions) . ' links');
+    }
+    
+    // Always return the post ID to maintain WordPress filter compatibility
+    return $post_ID;
 }
 
 /**
  * Insert links into the post content at appropriate positions
  * 
  * @param int $post_ID The post ID
- * @param array $links Array of link suggestions with 'anchor' and 'url' keys
- * @return bool True on success, false on failure
+ * @param array<array|object> $links Array of link suggestions, where each item is either an array with 'anchor' and 'url' keys
+ *                                   or an object with 'anchor' and 'url' properties
+ * @return bool|WP_Error True on success, false or WP_Error on failure
  */
 function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
     if (empty($links) || !is_array($links)) {
-        error_log('[Smart AI] No links provided for insertion');
-        return false;
+        $error_msg = 'No valid links provided for insertion';
+        error_log('[Smart AI] ' . $error_msg);
+        return new WP_Error('no_links', $error_msg);
     }
     
     error_log('[Smart AI] Attempting to insert ' . count($links) . ' links into post ' . $post_ID);
@@ -182,11 +286,19 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
 
         // Find the best link to insert in this paragraph
         foreach ($links as $key => $link) {
-            $anchor = $link['anchor'];
-            $url = $link['url'];
+            // Handle both array and object access
+            $anchor = is_array($link) ? ($link['anchor'] ?? '') : ($link->anchor ?? '');
+            $url = is_array($link) ? ($link['url'] ?? '') : ($link->url ?? '');
+            
+            // Skip if we don't have valid anchor or URL
+            if (empty($anchor) || empty($url)) {
+                error_log('[Smart AI] Skipping invalid link: ' . print_r($link, true));
+                continue;
+            }
             
             // Skip if we've already used this anchor or URL
             if (in_array($anchor, $used_anchors, true) || in_array($url, $used_urls, true)) {
+                error_log('[Smart AI] Skipping already used anchor/URL: ' . $anchor . ' | ' . $url);
                 continue;
             }
             

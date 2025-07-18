@@ -93,6 +93,7 @@ if (smart_ai_linker_check_requirements() === true && !defined('SMART_AI_LINKER_L
     // Include core functionality
     require_once SMARTLINK_AI_PATH . 'includes/internal-linking.php';
     require_once SMARTLINK_AI_PATH . 'includes/silo-structure.php';
+    require_once SMARTLINK_AI_PATH . 'includes/bulk-processing.php';
     require_once SMARTLINK_AI_PATH . 'includes/meta-box.php';
     require_once SMARTLINK_AI_PATH . 'admin/setting.page.php';
     require_once SMARTLINK_AI_PATH . 'api/deepseek-client.php';

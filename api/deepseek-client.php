@@ -60,7 +60,7 @@ if (!defined('FILTER_VALIDATE_URL')) {
  * 
  * @param string $content The post content to analyze
  * @param int $post_id The ID of the post being processed
- * @return array Array of link suggestions with 'anchor' and 'url' keys
+ * @return array<array{anchor: string, url: string}>|WP_Error Array of link suggestions with 'anchor' and 'url' keys, or WP_Error on failure
  */
 function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
     // Check if Exception class exists
@@ -289,6 +289,9 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
         error_log('[Smart AI] Raw AI response: ' . substr($ai_response, 0, 500) . 
                  (strlen($ai_response) > 500 ? '...' : ''));
         
+        // Initialize matches array
+        $matches = [];
+        
         // Extract JSON from markdown code block if present
         if (preg_match('/```(?:json\n)?(.*?)```/s', $ai_response, $matches) && !empty($matches[1])) {
             $ai_response = trim($matches[1]);
@@ -301,7 +304,7 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
         // If JSON parsing failed, try to extract JSON array directly
         if (json_last_error() !== JSON_ERROR_NONE) {
             // Try to find a JSON array in the response
-            if (preg_match('/\[(?:\s*\{.*?\}\s*,?\s*)+\]/s', $ai_response, $matches)) {
+            if (preg_match('/\[(?:\s*\{.*?\}\s*,?\s*)+\]/s', $ai_response, $matches) && !empty($matches[0])) {
                 $suggestions = json_decode($matches[0], true);
                 error_log('[Smart AI] Extracted JSON array from response');
             }
@@ -315,11 +318,11 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
             $ai_response = trim($ai_response);
             
             // Remove any trailing commas before closing brackets/braces
-            $ai_response = preg_replace('/,\s*([}\]])/m', '$1', $ai_response);
+            $ai_response = preg_replace('/,\s*([\}\]])/m', '$1', $ai_response);
             
             // Fix any unescaped quotes within strings
-            $ai_response = preg_replace_callback('/"([^"]*?)"/', function($matches) {
-                return '"' . str_replace('"', '\"', $matches[1]) . '"';
+            $ai_response = preg_replace_callback('/"([^"]*?)"/', function($m) {
+                return '"' . str_replace('"', '\\"', $m[1]) . '"';
             }, $ai_response);
             
             // Try parsing again
@@ -327,7 +330,7 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
             
             // If still failing, try to extract just the array portion
             if (json_last_error() !== JSON_ERROR_NONE) {
-                if (preg_match('/\[(?:\s*\{.*?\}\s*,?\s*)+\]/s', $ai_response, $matches)) {
+                if (preg_match('/\[(?:\s*\{.*?\}\s*,?\s*)+\]/s', $ai_response, $matches) && !empty($matches[0])) {
                     $suggestions = json_decode($matches[0], true);
                 }
             }
