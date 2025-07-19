@@ -352,13 +352,20 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
                     continue;
                 }
                 
-                // Create the link HTML
+                // Clean the anchor text to prevent XSS and HTML injection
+                $clean_anchor = wp_strip_all_tags($anchor);
+                $clean_anchor = trim($clean_anchor);
+                
+                // Create the link HTML with proper escaping
                 $link_html = sprintf(
                     '<a href="%s" class="smart-ai-link" title="%s">%s</a>',
                     esc_url($url),
-                    esc_attr($anchor),
-                    $anchor
+                    esc_attr($clean_anchor),
+                    esc_html($clean_anchor)
                 );
+                
+                // Ensure we're not creating nested links
+                $paragraph = preg_replace('/<a\s+[^>]*>\s*' . preg_quote($clean_anchor, '/') . '\s*<\/a>/i', $clean_anchor, $paragraph);
 
                 error_log('[Smart AI] Link HTML: ' . $link_html);
                 
@@ -566,8 +573,40 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
     error_log('[Smart AI] - Links added: ' . $links_added);
     error_log('[Smart AI] - Updated flag: ' . ($updated ? 'true' : 'false'));
     
-    // If we have content to update, save it
+    // If we have content to update, clean and save it
     if ($updated && !empty($content) && $content !== $post->post_content) {
+        // Clean up any malformed HTML
+        $content = preg_replace_callback('/<a\s+([^>]*)>([^<]*)<\/a>/i', function($matches) {
+            // Get attributes and content
+            $attrs = $matches[1];
+            $content = $matches[2];
+            
+            // Extract URL and title
+            preg_match('/href=["\']([^"\']*)["\']/', $attrs, $url_matches);
+            preg_match('/title=["\']([^"\']*)["\']/', $attrs, $title_matches);
+            
+            $url = $url_matches[1] ?? '';
+            $title = $title_matches[1] ?? '';
+            
+            // Clean up the content
+            $clean_content = wp_strip_all_tags($content);
+            $clean_content = trim($clean_content);
+            
+            // Rebuild the link with clean attributes
+            return sprintf(
+                '<a href="%s" class="smart-ai-link" title="%s">%s</a>',
+                esc_url($url),
+                esc_attr($clean_content),
+                esc_html($clean_content)
+            );
+        }, $content);
+        
+        // Fix any remaining malformed HTML
+        $content = force_balance_tags($content);
+        $content = wp_kses_post($content);
+        
+        // Remove any empty paragraphs or other empty tags
+        $content = preg_replace('/<[a-z]+[^>]*>\s*<\/[a-z]+>/i', '', $content);
         error_log('[Smart AI] Preparing to update post content');
         error_log('[Smart AI] New content length: ' . strlen($content));
         error_log('[Smart AI] First 200 chars of new content: ' . substr($content, 0, 200));
