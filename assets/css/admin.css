@@ -1,0 +1,288 @@
+/* Main Admin Styles */
+.smart-ai-dashboard,
+.smart-ai-silos,
+.smart-ai-settings {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+/* Dashboard Styles */
+.dashboard-widgets {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+    margin: 20px 0;
+}
+
+.dashboard-card {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+    padding: 20px;
+    border-radius: 4px;
+}
+
+.dashboard-card.full-width {
+    grid-column: 1 / -1;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+    gap: 15px;
+    text-align: center;
+}
+
+.stat-item {
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    border-left: 4px solid #2271b1;
+}
+
+.stat-number {
+    display: block;
+    font-size: 24px;
+    font-weight: 600;
+    color: #1d2327;
+    line-height: 1.2;
+}
+
+.stat-label {
+    font-size: 13px;
+    color: #646970;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.quick-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 15px;
+}
+
+/* Silo Management */
+.silo-management-container {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.silo-create-card,
+.silos-list-card,
+.bulk-assign-card {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+    padding: 20px;
+    border-radius: 4px;
+}
+
+.silo-form .form-field,
+.bulk-assign-form .form-field {
+    margin-bottom: 15px;
+}
+
+.silo-form label,
+.bulk-assign-form label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 600;
+}
+
+.silo-form input[type="text"],
+.silo-form textarea,
+.bulk-assign-form select,
+.bulk-assign-form input[type="text"] {
+    width: 100%;
+    max-width: 500px;
+}
+
+.silo-form textarea {
+    min-height: 100px;
+}
+
+.form-actions {
+    margin-top: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.form-actions .spinner {
+    float: none;
+    margin: 0;
+}
+
+/* Tables */
+.wp-list-table .column-silo-name {
+    width: 25%;
+}
+
+.wp-list-table .column-silo-slug {
+    width: 15%;
+}
+
+.wp-list-table .column-posts {
+    width: 10%;
+    text-align: center;
+}
+
+.wp-list-table .column-actions {
+    width: 25%;
+    text-align: right;
+}
+
+/* Settings Page */
+.settings-container {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 20px;
+}
+
+@media (min-width: 960px) {
+    .settings-content {
+        display: grid;
+        grid-template-columns: 1fr 300px;
+        gap: 20px;
+    }
+}
+
+.settings-form {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+    padding: 20px;
+    border-radius: 4px;
+}
+
+.settings-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.settings-card {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+    padding: 15px;
+    border-radius: 4px;
+}
+
+.settings-card h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.quick-links {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.quick-links li {
+    margin-bottom: 8px;
+}
+
+.quick-links a {
+    text-decoration: none;
+    color: #2271b1;
+    display: inline-block;
+    padding: 5px 0;
+}
+
+.quick-links a:hover {
+    color: #135e96;
+}
+
+/* Progress Bar */
+.progress-bar-container {
+    width: 100%;
+    height: 20px;
+    background: #f0f0f1;
+    border-radius: 3px;
+    margin: 15px 0;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    background: #2271b1;
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
+/* Modal Styles */
+.ai-progress-content,
+.edit-silo-content,
+.import-export-content {
+    background: #fff;
+    padding: 20px;
+    border-radius: 4px;
+    max-width: 600px;
+    margin: 20px auto;
+    position: relative;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 782px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .quick-actions {
+        flex-direction: column;
+    }
+    
+    .quick-actions .button {
+        width: 100%;
+        text-align: center;
+    }
+    
+    .wp-list-table .column-actions {
+        text-align: left;
+        margin-top: 10px;
+    }
+    
+    .wp-list-table .column-actions .button {
+        margin-bottom: 5px;
+    }
+}
+
+/* Toggle Switch */
+.toggle-import-export {
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+    text-align: center;
+}
+
+/* Notices */
+.notice {
+    margin: 5px 0 15px;
+}
+
+/* Button Styles */
+.button.button-secondary {
+    background: #f0f0f1;
+    border-color: #8c8f94;
+    color: #2c3338;
+}
+
+.button.button-secondary:hover {
+    background: #dcdcde;
+    border-color: #787c82;
+}
+
+/* Spinner Alignment */
+.spinner {
+    visibility: visible;
+    float: none;
+    margin: 0;
+    display: inline-block;
+}

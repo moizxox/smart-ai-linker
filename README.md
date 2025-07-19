@@ -1,53 +1,165 @@
 # Smart AI Linker
 
-A powerful WordPress plugin that uses advanced AI to automatically create meaningful internal links, improving your site's SEO and user engagement.
+A powerful WordPress plugin that uses advanced AI to automatically create meaningful internal links and manage content silos, significantly improving your site's SEO, content organization, and user engagement.
 
 ## 🚀 Key Features
 
-- **Advanced AI-Powered Linking**: Leverages DeepSeek AI for intelligent, context-aware internal link suggestions
-- **Smart Content Analysis**: Automatically analyzes and processes both posts and pages for optimal linking
-- **Automatic Link Insertion**: Seamlessly adds up to 7 relevant internal links (configurable) when publishing content
-- **Intelligent Anchor Text**: Generates natural-sounding anchor text that flows with your content
-- **Comprehensive Post & Page Support**: Works with all standard post types and pages
-- **Content Safety**: Preserves all existing HTML formatting and prevents broken links
-- **SEO Optimization**: Enhances your site's internal linking structure for better search engine visibility
+### AI-Powered Internal Linking
+- **Smart Content Analysis**: Automatically analyzes content to identify optimal linking opportunities
+- **Context-Aware Suggestions**: Uses DeepSeek AI to generate relevant, natural-sounding anchor text
+- **Automated Link Insertion**: Adds up to 7 relevant internal links (configurable)
+- **Bulk Processing**: Generate or update links across multiple posts at once
+
+### Content Silo Management
+- **Silo Creation & Management**: Easily create and organize content silos
+- **Bulk Silo Assignment**: Assign multiple posts to silos in one go
+- **Auto-Silo Assignment**: AI analyzes content to suggest appropriate silos
+- **Silo-Based Navigation**: Built-in tools to create silo-based navigation structures
+
+### SEO & Performance
+- **SEO Optimization**: Enhances internal linking structure for better search visibility
+- **Content Organization**: Improves content architecture with silo structures
 - **Performance Optimized**: Efficient processing with minimal impact on site speed
+- **Comprehensive Reporting**: Track link performance and silo effectiveness
 
 ## 🛠 Installation
 
 1. Upload the `smart-ai-linker` folder to your `/wp-content/plugins/` directory
 2. Activate the plugin through the 'Plugins' menu in WordPress
-3. Navigate to Settings > Smart AI Linker
-4. Enter your DeepSeek API key (get it from [DeepSeek Platform](https://platform.deepseek.com/))
-5. Configure your preferred settings (auto-linking, maximum links, post types, etc.)
+3. The plugin will automatically create necessary database tables
+4. Navigate to Smart AI Linker > Settings in your WordPress admin
+5. Enter your DeepSeek API key (get it from [DeepSeek Platform](https://platform.deepseek.com/))
+6. Configure your preferred settings for linking and silo management
 
 ### Requirements
-- WordPress 5.0 or higher
-- PHP 7.4 or higher
+- WordPress 5.6 or higher
+- PHP 7.4 or higher (PHP 8.0+ recommended)
+- MySQL 5.7+ or MariaDB 10.3+
 - cURL extension enabled
-- DeepSeek API key
+- DeepSeek API key (for AI features)
 
 ## ⚙️ Configuration
 
-### Plugin Settings
+### 1. General Settings
+- **API Configuration**
+  - **DeepSeek API Key**: Required for AI processing [Get your API key](https://platform.deepseek.com/)
+  - **Enable AI Features**: Toggle AI-powered suggestions on/off
 
-1. **API Configuration**
-   - **DeepSeek API Key**: Required for AI processing. [Get your API key](https://platform.deepseek.com/)
-   
-2. **Linking Settings**
-   - **Enable Auto-Linking**: Toggle automatic link generation when publishing/updating content
-   - **Maximum Links per Post**: Set between 1-10 links (default: 7)
-   - **Link Target**: Choose whether links open in the same or new tab
-   
-3. **Content Types**
-   - **Post Types**: Select which content types to process (posts, pages, custom post types)
-   - **Include Pages**: Toggle whether to include pages in link suggestions
-   
-4. **Advanced Options**
-   - **Minimum Word Count**: Set minimum content length for processing (default: 100 words)
-   - **Enable Debug Logging**: For troubleshooting (recommended for development only)
+### 2. Linking Settings
+- **Auto-Linking**: Enable/disable automatic link generation
+  - **On Publish**: Generate links when content is published/updated
+  - **On Save**: Generate links when content is saved as draft
+- **Link Generation**
+  - **Maximum Links**: Set between 1-10 links per post (default: 7)
+  - **Link Target**: Choose _blank (new tab) or _self (same tab)
+  - **Nofollow Links**: Add rel="nofollow" to generated links
 
-## 🎯 Usage
+### 3. Silo Management
+- **Auto-Silo Assignment**: Enable AI to suggest silos based on content
+- **Default Silo**: Set a default silo for new content
+- **Silo Hierarchy**: Enable parent-child relationships between silos
+
+### 4. Content Types
+- **Enabled Post Types**: Select which content types to process
+- **Minimum Word Count**: Set minimum content length for processing (default: 100 words)
+- **Exclude IDs**: List post IDs to exclude from processing
+
+### 5. Advanced Options
+- **Debug Mode**: Enable detailed error logging
+- **API Timeout**: Set timeout for API requests (default: 30s)
+- **Batch Size**: Number of posts to process in bulk operations
+
+## 🎯 Getting Started
+
+### 1. Setting Up Your First Silo
+1. Go to Smart AI Linker > Silo Management
+2. Click "Add New Silo"
+3. Enter a name and description for your silo
+4. (Optional) Set a parent silo to create hierarchies
+5. Click "Save Silo"
+
+### 2. Assigning Content to Silos
+#### Manual Assignment
+1. Edit any post/page
+2. Find the "Silo Assignment" meta box
+3. Select one or more silos for the content
+4. Update the post
+
+#### Bulk Assignment
+1. Go to Posts/Pages list
+2. Select multiple items using checkboxes
+3. Choose "Edit" from Bulk Actions
+4. Set the silo in the bulk editor
+5. Click "Update"
+
+### 3. Generating Links
+#### Automatic Linking
+1. Ensure "Auto-Linking" is enabled in settings
+2. Create or update a post
+3. The plugin will automatically generate relevant links
+
+#### Manual Linking
+1. Edit a post
+2. Click "Generate Links" in the Smart AI Linker meta box
+3. Review and adjust suggestions
+4. Click "Insert Links"
+
+### 4. Bulk Processing
+1. Go to Smart AI Linker > Dashboard
+2. Click "Bulk Generate Links"
+3. Select content to process
+4. Click "Process" and monitor progress
+
+## 📊 Monitoring & Reporting
+
+### Link Analysis
+- View all generated links
+- See which posts link to each other
+- Check for broken or outdated links
+
+### Silo Reports
+- Content distribution across silos
+- Internal link structure visualization
+- SEO impact analysis
+
+## 🔍 Advanced Features
+
+### Custom Link Rules
+- Define specific linking rules
+- Set preferred anchor text
+- Create manual link overrides
+
+### Performance Optimization
+- Schedule bulk operations during off-peak hours
+- Set processing priorities
+- Monitor resource usage
+
+## 🤝 Support
+
+For support, feature requests, or bug reports, please:
+1. Check the [FAQ](#) section
+2. Visit our [support forum](#)
+3. Contact support@example.com
+
+## 📜 Changelog
+
+### 1.0.0 - 2025-07-19
+- Initial release with complete silo management
+- AI-powered internal linking
+- Bulk processing capabilities
+- Comprehensive reporting
+
+## 🔒 Security
+
+All data is processed securely:
+- API connections use HTTPS
+- No sensitive data is stored
+- Regular security audits
+- GDPR compliant
+
+## 👥 Contributing
+
+We welcome contributions! Please read our [contributing guidelines](CONTRIBUTING.md) before submitting pull requests.
 
 ### Automatic Linking (Recommended)
 1. Write or edit your content as usual
