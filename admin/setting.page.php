@@ -24,6 +24,8 @@ function smart_ai_linker_register_settings() {
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_enable_auto_linking');
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_max_links');
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_post_types');
+    register_setting('smart_ai_linker_settings', 'smart_ai_linker_enable_broken_links');
+    register_setting('smart_ai_linker_settings', 'smart_ai_linker_enable_page_to_page');
     
     // Add settings section
     add_settings_section(
@@ -62,6 +64,22 @@ function smart_ai_linker_register_settings() {
         'smart_ai_linker_post_types_field',
         'Enable for Post Types',
         'smart_ai_linker_post_types_field_callback',
+        'smart-ai-linker',
+        'smart_ai_linker_general_section'
+    );
+    
+    add_settings_field(
+        'smart_ai_linker_enable_broken_links_field',
+        'Enable Broken Link Checker',
+        'smart_ai_linker_enable_broken_links_field_callback',
+        'smart-ai-linker',
+        'smart_ai_linker_general_section'
+    );
+    
+    add_settings_field(
+        'smart_ai_linker_enable_page_to_page_field',
+        'Enable Page-to-Page Linking',
+        'smart_ai_linker_enable_page_to_page_field_callback',
         'smart-ai-linker',
         'smart_ai_linker_general_section'
     );
@@ -187,25 +205,24 @@ function smart_ai_linker_max_links_field_callback() {
 }
 
 function smart_ai_linker_post_types_field_callback() {
-    $selected_types = get_option('smart_ai_linker_post_types', array('post'));
-    $post_types = get_post_types(array('public' => true), 'objects');
+    $post_types = get_post_types(['public' => true], 'objects');
+    $enabled_types = get_option('smart_ai_linker_post_types', ['post', 'page']);
     
     foreach ($post_types as $post_type) {
-        if ($post_type->name === 'attachment') continue;
-        
-        $checked = in_array($post_type->name, (array)$selected_types) ? 'checked="checked"' : '';
-        ?>
-        <label style="display: block; margin: 5px 0;">
-            <input type="checkbox" name="smart_ai_linker_post_types[]" 
-                   value="<?php echo esc_attr($post_type->name); ?>" 
-                   <?php echo $checked; ?> />
-            <?php echo esc_html($post_type->labels->singular_name); ?>
-        </label>
-        <?php
+        $checked = in_array($post_type->name, (array) $enabled_types) ? 'checked' : '';
+        echo "<label><input type='checkbox' name='smart_ai_linker_post_types[]' value='{$post_type->name}' {$checked}> {$post_type->label}</label><br>";
     }
-    ?>
-    <p class="description">
-        Select which post types should be processed for internal linking
-    </p>
-    <?php
+    echo '<p class="description">Select which post types should have automatic internal linking.</p>';
+}
+
+function smart_ai_linker_enable_broken_links_field_callback() {
+    $enabled = get_option('smart_ai_linker_enable_broken_links', '1');
+    echo "<label><input type='checkbox' name='smart_ai_linker_enable_broken_links' value='1' " . checked('1', $enabled, false) . '> Enable automatic broken link checking and fixing</label>';
+    echo '<p class="description">When enabled, the plugin will automatically check for and fix broken links when posts are saved.</p>';
+}
+
+function smart_ai_linker_enable_page_to_page_field_callback() {
+    $enabled = get_option('smart_ai_linker_enable_page_to_page', '1');
+    echo "<label><input type='checkbox' name='smart_ai_linker_enable_page_to_page' value='1' " . checked('1', $enabled, false) . '> Enable linking between pages</label>';
+    echo '<p class="description">When enabled, the plugin will suggest and create links between pages as well as posts.</p>';
 }

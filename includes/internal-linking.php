@@ -49,14 +49,14 @@ function smart_ai_linker_generate_internal_links($post_ID, $post = null, $update
         return $post_ID;
     }
 
-    // Only run for published posts
-    if ($post->post_status !== 'publish') {
+    // Run for published posts and pages, or when status is 'future' (scheduled)
+    if (!in_array($post->post_status, ['publish', 'future'])) {
         error_log('[Smart AI] Skipping - post status is ' . $post->post_status);
         return $post_ID;
     }
 
-    // Skip if post type is not enabled for linking
-    $enabled_post_types = get_option('smart_ai_linker_post_types', array('post'));
+    // Get enabled post types for linking (default to both posts and pages)
+    $enabled_post_types = get_option('smart_ai_linker_post_types', array('post', 'page'));
     if (!in_array($post->post_type, (array) $enabled_post_types)) {
         error_log('[Smart AI] Post type is not enabled for linking');
         return $post_ID;
@@ -114,12 +114,16 @@ function smart_ai_linker_generate_internal_links($post_ID, $post = null, $update
     
     // Ensure we're passing a string to the function
     $content_for_analysis = is_string($clean_content) ? $clean_content : '';
+    
+    // Get the post type for context
+    $post_type = $post->post_type;
     if (empty($content_for_analysis)) {
         error_log('[Smart AI] No valid content available for analysis');
         return $post_ID;
     }
     
-    $suggestions = smart_ai_linker_get_ai_link_suggestions($content_for_analysis, $post_ID);
+    // Get suggestions based on post type
+    $suggestions = smart_ai_linker_get_ai_link_suggestions($content_for_analysis, $post_ID, $post_type);
     
     if (is_wp_error($suggestions)) {
         error_log('[Smart AI] Error getting AI suggestions: ' . $suggestions->get_error_message());
@@ -666,6 +670,12 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
             error_log('[Smart AI] Actual content: ' . ($updated_post ? substr($updated_post->post_content, 0, 500) : 'Post not found'));
             return false;
         }
+
+        // Include broken links handler
+require_once SMARTLINK_AI_PATH . 'includes/broken-links.php';
+
+// Initialize broken links handler
+add_action('plugins_loaded', ['Smart_AI_Linker_Broken_Links', 'init']);
 
         // Store the links that were added
         $added_links = [];

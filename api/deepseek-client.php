@@ -105,19 +105,27 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
     $existing_links = get_post_meta($post_id, '_smart_ai_linker_added_links', true) ?: [];
     $existing_urls = array_column($existing_links, 'url');
     
-    // Get a list of existing posts and pages for context
-    $existing_posts = get_posts([
-        'post_type' => ['post', 'page'], // Include both posts and pages
+    // Get current post type
+    $current_post_type = get_post_type($post_id);
+    
+    // Set up query args for getting linkable posts/pages
+    $query_args = [
         'post_status' => 'publish',
         'posts_per_page' => 200, // Increased to get more content for better suggestions
         'exclude' => [$post_id], // Exclude current post
-        'post__not_in' => [$post_id], // Double ensure current post is excluded
         'fields' => 'ids',
         'orderby' => 'date',
         'order' => 'DESC',
         'post_parent__in' => [0], // Include both top-level and child pages
         'suppress_filters' => false, // Ensure all filters are applied
-    ]);
+    ];
+    
+    // If current post is a page, only get other pages
+    // If current post is a post, get both posts and pages
+    $query_args['post_type'] = ($current_post_type === 'page') ? 'page' : ['post', 'page'];
+    
+    // Get the posts/pages for linking
+    $existing_posts = get_posts($query_args);
     
     // If no posts found, return empty array
     if (empty($existing_posts)) {
@@ -140,7 +148,7 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
              "\n\n" .
              "CRITICAL INSTRUCTIONS:\n" .
              "1. Analyze the content and suggest 7-10 relevant internal links.\n" .
-             "2. Prioritize linking to both pages and posts that are most relevant.\n" .
+             "2. " . ($current_post_type === 'page' ? 'Only link to other PAGES (not posts). ' : 'You may link to both PAGES and POSTS. ') . "\n" .
              "3. Choose anchor text that:\n" .
              "   - Is 2-4 words long\n" .
              "   - Appears naturally in the content\n" .
