@@ -60,9 +60,11 @@ if (!defined('FILTER_VALIDATE_URL')) {
  * 
  * @param string $content The post content to analyze
  * @param int $post_id The ID of the post being processed
+ * @param string $post_type The post type (post/page)
+ * @param array $priority_post_ids (optional) Array of post IDs to prioritize (e.g., from silo group)
  * @return array<array{anchor: string, url: string}>|WP_Error Array of link suggestions with 'anchor' and 'url' keys, or WP_Error on failure
  */
-function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
+function smart_ai_linker_get_ai_link_suggestions($content, $post_id, $post_type = 'post', $priority_post_ids = []) {
     // Check if Exception class exists
     if (!class_exists('Exception')) {
         error_log('[Smart AI] Required Exception class not found');
@@ -124,7 +126,25 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
     // If current post is a post, get both posts and pages
     $query_args['post_type'] = ($current_post_type === 'page') ? 'page' : ['post', 'page'];
     
-    // Get the posts/pages for linking
+    // If priority_post_ids (silo group) is provided, fetch those first
+    $priority_titles = [];
+    if (!empty($priority_post_ids) && is_array($priority_post_ids)) {
+        $priority_posts = get_posts([
+            'post__in' => $priority_post_ids,
+            'post_status' => 'publish',
+            'posts_per_page' => -1,
+            'fields' => 'ids',
+            'orderby' => 'post__in',
+            'post_type' => $query_args['post_type'],
+        ]);
+        foreach ($priority_posts as $pid) {
+            $priority_titles[] = get_the_title($pid) . ' (' . get_permalink($pid) . ')';
+        }
+        // Remove these from the main candidate list
+        $query_args['exclude'] = array_merge($query_args['exclude'], $priority_post_ids);
+    }
+
+    // Get the posts/pages for linking (excluding priority ones)
     $existing_posts = get_posts($query_args);
     
     // If no posts found, return empty array
@@ -138,11 +158,15 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
         $post_titles[] = get_the_title($pid) . ' (' . get_permalink($pid) . ')';
     }
     
-    // Prepare the prompt with more context and instructions
+    // Prepare the prompt with silo priority
     $prompt = "You are an expert content strategist helping to improve internal linking for a WordPress website. Follow these guidelines carefully:\n\n" .
              "WEBSITE: {$site_name} ({$site_url})\n" .
-             "CURRENT POST TITLE: {$post_title}\n\n" .
-             "AVAILABLE PAGES/POSTS TO LINK TO (format: Title - URL):\n" . 
+             "CURRENT POST TITLE: {$post_title}\n\n";
+    if (!empty($priority_titles)) {
+        $prompt .= "PRIORITY: The following posts/pages are in the same silo group as the current post. Suggest links to these first if relevant.\n" .
+                  implode("\n", $priority_titles) . "\n\n";
+    }
+    $prompt .= "AVAILABLE PAGES/POSTS TO LINK TO (format: Title - URL):\n" . 
              implode("\n", array_slice($post_titles, 0, 50)) . 
              (count($post_titles) > 50 ? "\n...and " . (count($post_titles) - 50) . " more" : "") . 
              "\n\n" .
@@ -157,7 +181,11 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id) {
              "4. Only suggest links that provide clear value to the reader.\n" .
              "5. Never suggest linking the same URL more than once.\n" .
              "6. Ensure the link makes sense in context and adds value.\n" .
-             "7. Include a good mix of both post and page links when relevant.\n\n" .
+             "7. PRIORITIZE links to posts/pages in the same silo group if provided above.\n";
+    if ($current_post_type !== 'page') {
+        $prompt .= "8. Include at least 2 links to PAGES (not posts) if possible.\n";
+    }
+    $prompt .= "9. Include a good mix of both post and page links when relevant.\n\n" .
              "IMPORTANT: Your response MUST be a valid JSON array of objects. Each object MUST have 'anchor' and 'url' keys.\n" .
              "DO NOT include any text before or after the JSON array.\n" .
              "DO NOT include code block markers (```json or ```).\n" .

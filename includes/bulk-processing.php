@@ -56,8 +56,26 @@ function smart_ai_linker_bulk_action_handler($redirect_to, $doaction, $post_ids)
             continue;
         }
 
-        // Get AI suggestions
-        $suggestions = smart_ai_linker_get_ai_link_suggestions($clean_content, $post_id);
+        // --- Silo Linking Priority for Bulk ---
+        $silo_post_ids = [];
+        if (class_exists('Smart_AI_Linker_Silos')) {
+            $silo_instance = Smart_AI_Linker_Silos::get_instance();
+            $post_silos = $silo_instance->get_post_silos($post_id);
+            if (!empty($post_silos)) {
+                global $wpdb;
+                $silo_ids = array_map(function($silo){ return is_object($silo) ? $silo->id : $silo['id']; }, $post_silos);
+                $placeholders = implode(',', array_fill(0, count($silo_ids), '%d'));
+                $query = $wpdb->prepare(
+                    "SELECT post_id FROM {$silo_instance->silo_relationships} WHERE silo_id IN ($placeholders) AND post_id != %d",
+                    array_merge($silo_ids, [$post_id])
+                );
+                $silo_post_ids = $wpdb->get_col($query);
+            }
+        }
+        // --- End Silo Linking Priority for Bulk ---
+
+        // Get AI suggestions (with post type and silo info)
+        $suggestions = smart_ai_linker_get_ai_link_suggestions($clean_content, $post_id, $post->post_type, $silo_post_ids);
         
         if (empty($suggestions) || !is_array($suggestions)) {
             $skipped++;

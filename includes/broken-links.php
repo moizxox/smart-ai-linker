@@ -55,7 +55,6 @@ class Smart_AI_Linker_Broken_Links {
             if (self::is_broken_link($link['url'])) {
                 // Get a relevant replacement link
                 $replacement = self::get_replacement_link($link['text'], $post_id);
-                
                 if ($replacement) {
                     // Replace the broken link in the content
                     $content = str_replace(
@@ -67,6 +66,10 @@ class Smart_AI_Linker_Broken_Links {
                         ),
                         $content
                     );
+                    $updated = true;
+                } else {
+                    // Remove the broken link, leave just the anchor text
+                    $content = str_replace($link['full_match'], esc_html($link['text']), $content);
                     $updated = true;
                 }
             }
@@ -125,21 +128,15 @@ class Smart_AI_Linker_Broken_Links {
         if (!filter_var($url, FILTER_VALIDATE_URL)) {
             return false;
         }
-        
-        // Skip internal links
+        // Check internal links as well
         $site_url = get_site_url();
-        if (strpos($url, $site_url) === 0) {
-            return false;
-        }
-        
-        // Check the URL
+        $is_internal = (strpos($url, $site_url) === 0);
         $response = wp_remote_head($url, [
             'timeout' => 5,
             'redirection' => 5,
             'sslverify' => false,
             'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         ]);
-        
         // Consider it broken if there's an error or status code is 4xx/5xx
         return is_wp_error($response) || ($response['response']['code'] >= 400);
     }
