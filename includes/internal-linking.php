@@ -351,6 +351,18 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
     }
     $new_content = implode('', $paragraphs);
     if ($new_content && $new_content !== $content) {
+        // Deduplicate links: keep only the first occurrence of each URL
+        $seen_urls = [];
+        $new_content = preg_replace_callback('/<a\s+[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)<\/a>/i', function($matches) use (&$seen_urls) {
+            $url = $matches[1];
+            $anchor = $matches[2];
+            if (!in_array($url, $seen_urls)) {
+                $seen_urls[] = $url;
+                return $matches[0]; // keep the first occurrence
+            } else {
+                return $anchor; // remove link, keep anchor text
+            }
+        }, $new_content);
         global $wpdb;
         $result = $wpdb->update(
             $wpdb->posts,

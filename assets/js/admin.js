@@ -724,6 +724,75 @@
                 }
             });
         });
+
+        // Background Bulk Processing UI
+        var $processBtn = $('#smart-ai-linker-process-all');
+        var $progressBar = $('<div id="smart-ai-linker-progress-bar" style="display:none;margin:10px 0;padding:5px 10px;background:#f1f1f1;border:1px solid #ccc;"></div>');
+        var $stopBtn = $('<button id="smart-ai-linker-stop" class="button" style="margin-left:10px;display:none;">Stop Processing</button>');
+        $processBtn.after($progressBar).after($stopBtn);
+
+        function updateProgressBar(processed, total) {
+            $progressBar.show();
+            $progressBar.text('Processing: ' + processed + ' / ' + total + ' posts');
+            if (processed >= total) {
+                $progressBar.text('Processing complete!');
+                $stopBtn.hide();
+            }
+        }
+
+        function pollBulkProcess() {
+            $.post(ajaxurl, {action: 'smart_ai_linker_process_next'}, function(resp) {
+                if (resp.success && resp.data && resp.data.progress) {
+                    updateProgressBar(resp.data.progress.processed, resp.data.progress.total);
+                    if (!resp.data.done) {
+                        setTimeout(pollBulkProcess, 800);
+                    } else {
+                        $processBtn.prop('disabled', false);
+                        $stopBtn.hide();
+                    }
+                } else {
+                    $progressBar.text('Error during processing.');
+                    $processBtn.prop('disabled', false);
+                    $stopBtn.hide();
+                }
+            });
+        }
+
+        $processBtn.on('click', function(e) {
+            e.preventDefault();
+            $processBtn.prop('disabled', true);
+            $stopBtn.show();
+            $progressBar.text('Starting...').show();
+            $.post(ajaxurl, {action: 'smart_ai_linker_start_bulk', post_type: $processBtn.data('post-type') || 'post'}, function(resp) {
+                if (resp.success && resp.data && resp.data.total > 0) {
+                    updateProgressBar(0, resp.data.total);
+                    pollBulkProcess();
+                } else {
+                    $progressBar.text('No unprocessed posts found.');
+                    $processBtn.prop('disabled', false);
+                    $stopBtn.hide();
+                }
+            });
+        });
+
+        $stopBtn.on('click', function(e) {
+            e.preventDefault();
+            $.post(ajaxurl, {action: 'smart_ai_linker_stop_bulk'}, function() {
+                $progressBar.text('Processing stopped.');
+                $processBtn.prop('disabled', false);
+                $stopBtn.hide();
+            });
+        });
+
+        // On page load, check if a process is running
+        $.post(ajaxurl, {action: 'smart_ai_linker_process_next'}, function(resp) {
+            if (resp.success && resp.data && resp.data.progress && resp.data.progress.total > 0 && !resp.data.done) {
+                updateProgressBar(resp.data.progress.processed, resp.data.progress.total);
+                $processBtn.prop('disabled', true);
+                $stopBtn.show();
+                setTimeout(pollBulkProcess, 800);
+            }
+        });
     });
     
     // Close the IIFE
