@@ -664,6 +664,13 @@ add_filter('the_content', function($content) {
             return $anchor;
         }
     }, $new_content);
+    // If links were added and not already marked processed, set the meta
+    static $processing_flag = false;
+    if ($links_were_added && !$processing_flag && $post && !get_post_meta($post->ID, '_smart_ai_linker_processed', true)) {
+        $processing_flag = true;
+        update_post_meta($post->ID, '_smart_ai_linker_processed', current_time('mysql'));
+        $processing_flag = false;
+    }
     return $new_content;
 }, 999);
 // --- end the_content filter ---
