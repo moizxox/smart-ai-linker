@@ -434,3 +434,236 @@ add_action('template_redirect', function() {
     }
 });
 // --- End 301 Redirects ---
+
+// --- Admin column: AI Links count ---
+add_filter('manage_post_posts_columns', function($columns) {
+    $columns['smart_ai_links'] = __('AI Links', 'smart-ai-linker');
+    return $columns;
+});
+add_filter('manage_page_posts_columns', function($columns) {
+    $columns['smart_ai_links'] = __('AI Links', 'smart-ai-linker');
+    return $columns;
+});
+add_action('manage_post_posts_custom_column', function($column, $post_id) {
+    if ($column === 'smart_ai_links') {
+        $links = get_post_meta($post_id, '_smart_ai_linker_added_links', true);
+        echo is_array($links) ? count($links) : 0;
+    }
+}, 10, 2);
+add_action('manage_page_posts_custom_column', function($column, $post_id) {
+    if ($column === 'smart_ai_links') {
+        $links = get_post_meta($post_id, '_smart_ai_linker_added_links', true);
+        echo is_array($links) ? count($links) : 0;
+    }
+}, 10, 2);
+// --- End Admin column: AI Links count ---
+
+// --- Admin column: AI Status badge ---
+add_filter('manage_post_posts_columns', function($columns) {
+    $columns['smart_ai_status'] = __('AI Status', 'smart-ai-linker');
+    return $columns;
+});
+add_filter('manage_page_posts_columns', function($columns) {
+    $columns['smart_ai_status'] = __('AI Status', 'smart-ai-linker');
+    return $columns;
+});
+add_action('manage_post_posts_custom_column', function($column, $post_id) {
+    if ($column === 'smart_ai_status') {
+        $processed = get_post_meta($post_id, '_smart_ai_linker_processed', true);
+        if ($processed) {
+            echo '<span style="display:inline-block;padding:2px 8px;background:#46b450;color:#fff;border-radius:10px;font-size:11px;">'.__('Processed','smart-ai-linker').'</span>';
+        } else {
+            echo '<span style="display:inline-block;padding:2px 8px;background:#aaa;color:#fff;border-radius:10px;font-size:11px;">'.__('Unprocessed','smart-ai-linker').'</span>';
+        }
+    }
+}, 10, 2);
+add_action('manage_page_posts_custom_column', function($column, $post_id) {
+    if ($column === 'smart_ai_status') {
+        $processed = get_post_meta($post_id, '_smart_ai_linker_processed', true);
+        if ($processed) {
+            echo '<span style="display:inline-block;padding:2px 8px;background:#46b450;color:#fff;border-radius:10px;font-size:11px;">'.__('Processed','smart-ai-linker').'</span>';
+        } else {
+            echo '<span style="display:inline-block;padding:2px 8px;background:#aaa;color:#fff;border-radius:10px;font-size:11px;">'.__('Unprocessed','smart-ai-linker').'</span>';
+        }
+    }
+}, 10, 2);
+// --- End Admin column: AI Status badge ---
+
+// --- Meta box: AI Links progress bar ---
+add_action('add_meta_boxes', function() {
+    foreach (array('post','page') as $type) {
+        add_meta_box('smart_ai_linker_progress', __('AI Internal Links Progress', 'smart-ai-linker'), function($post) {
+            $links = get_post_meta($post->ID, '_smart_ai_linker_added_links', true);
+            $ai_count = is_array($links) ? count($links) : 0;
+            $max_links = (int) get_option('smart_ai_linker_max_links', 7);
+            $max_links = $max_links > 0 ? min(7, $max_links) : 7;
+            // Count manual internal links
+            $content = $post->post_content;
+            $manual_count = 0;
+            if ($content) {
+                $manual_count = preg_match_all('/<a\s+[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)<\/a>/i', $content, $matches);
+                if ($ai_count > 0) $manual_count -= $ai_count; // crude estimate
+                if ($manual_count < 0) $manual_count = 0;
+            }
+            $total = $ai_count + $manual_count;
+            $percent = $max_links > 0 ? min(100, round(($ai_count/$max_links)*100)) : 0;
+            echo '<div style="margin-bottom:8px;font-weight:bold;">'.esc_html($ai_count).' of '.esc_html($max_links).' AI links used</div>';
+            echo '<div style="background:#e5e5e5;border-radius:4px;height:18px;width:100%;margin-bottom:8px;overflow:hidden;">'
+                .'<div style="background:#0073aa;height:18px;width:'.$percent.'%;transition:width 0.3s;"></div>'
+                .'</div>';
+            echo '<div style="font-size:12px;color:#666;">Manual internal links: '.esc_html($manual_count).'</div>';
+        }, $type, 'side', 'high');
+    }
+});
+// --- End Meta box: AI Links progress bar ---
+
+// --- the_content filter for universal builder compatibility (DOMDocument, priority 999, fuzzy matching) ---
+add_filter('the_content', function($content) {
+    if (is_admin() || defined('REST_REQUEST') && REST_REQUEST) return $content;
+    global $post;
+    if (!$post || !in_array($post->post_type, array('post','page'))) return $content;
+    if (strpos($content, 'class="smart-ai-link"') !== false) return $content;
+    $clean_content = wp_strip_all_tags(strip_shortcodes($content));
+    if (str_word_count($clean_content) < 30) return $content;
+    $silo_post_ids = [];
+    if (class_exists('Smart_AI_Linker_Silos')) {
+        $silo_instance = Smart_AI_Linker_Silos::get_instance();
+        $post_silos = $silo_instance->get_post_silos($post->ID);
+        if (!empty($post_silos)) {
+            global $wpdb;
+            $silo_ids = array_map(function($silo){ return is_object($silo) ? $silo->id : $silo['id']; }, $post_silos);
+            $placeholders = implode(',', array_fill(0, count($silo_ids), '%d'));
+            $query = $wpdb->prepare(
+                "SELECT post_id FROM {$silo_instance->silo_relationships} WHERE silo_id IN ($placeholders) AND post_id != %d",
+                array_merge($silo_ids, [$post->ID])
+            );
+            $silo_post_ids = $wpdb->get_col($query);
+        }
+    }
+    $suggestions = smart_ai_linker_get_ai_link_suggestions($clean_content, $post->ID, $post->post_type, $silo_post_ids);
+    $option_max = (int) get_option('smart_ai_linker_max_links', 7);
+    $option_max = $option_max > 0 ? min(7, $option_max) : 7;
+    $max_links = $option_max;
+    $suggestions = array_slice($suggestions, 0, $max_links);
+    if (empty($suggestions)) return $content;
+    libxml_use_internal_errors(true);
+    $dom = new DOMDocument();
+    $encoding = '<?xml encoding="utf-8" ?>';
+    $dom->loadHTML($encoding . '<div>' . $content . '</div>', LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+    $xpath = new DOMXPath($dom);
+    $used_anchors = [];
+    $used_urls = [];
+    $links_added = 0;
+    foreach ($suggestions as $link) {
+        if ($links_added >= $max_links) break;
+        $anchor = is_array($link) ? ($link['anchor'] ?? '') : ($link->anchor ?? '');
+        $url = is_array($link) ? ($link['url'] ?? '') : ($link->url ?? '');
+        if (empty($anchor) || empty($url)) continue;
+        if ($post->post_type === 'page') {
+            $target_post_id = url_to_postid($url);
+            if ($target_post_id && get_post_type($target_post_id) !== 'page') continue;
+        }
+        if (in_array($anchor, $used_anchors, true) || in_array($url, $used_urls, true)) continue;
+        $text_nodes = [];
+        foreach ($xpath->query('//text()[not(ancestor::a)]') as $node) {
+            $text_nodes[] = $node;
+        }
+        $inserted = false;
+        // 1. Try exact match
+        foreach ($text_nodes as $text_node) {
+            $text = $text_node->nodeValue;
+            $pos = mb_stripos($text, $anchor);
+            if ($pos !== false) {
+                $before = mb_substr($text, 0, $pos);
+                $match = mb_substr($text, $pos, mb_strlen($anchor));
+                $after = mb_substr($text, $pos + mb_strlen($anchor));
+                $a = $dom->createElement('a', htmlspecialchars($match, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+                $a->setAttribute('href', esc_url($url));
+                $a->setAttribute('class', 'smart-ai-link');
+                $a->setAttribute('title', esc_attr($anchor));
+                $parent = $text_node->parentNode;
+                if ($parent !== null) {
+                    if ($before !== '') $parent->insertBefore($dom->createTextNode($before), $text_node);
+                    $parent->insertBefore($a, $text_node);
+                    if ($after !== '') $parent->insertBefore($dom->createTextNode($after), $text_node);
+                    $parent->removeChild($text_node);
+                    $used_anchors[] = $anchor;
+                    $used_urls[] = $url;
+                    $links_added++;
+                    $inserted = true;
+                    break;
+                }
+            }
+        }
+        if ($inserted) continue;
+        // 2. Try partial/fuzzy match (first 2-3 words, normalized)
+        $anchor_words = preg_split('/\s+/', $anchor);
+        $partial = implode(' ', array_slice($anchor_words, 0, min(3, count($anchor_words))));
+        foreach ($text_nodes as $text_node) {
+            $text = preg_replace('/\s+/', ' ', $text_node->nodeValue);
+            $pos = mb_stripos($text, $partial);
+            if ($pos !== false) {
+                $before = mb_substr($text, 0, $pos);
+                $match = mb_substr($text, $pos, mb_strlen($partial));
+                $after = mb_substr($text, $pos + mb_strlen($partial));
+                $a = $dom->createElement('a', htmlspecialchars($match, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+                $a->setAttribute('href', esc_url($url));
+                $a->setAttribute('class', 'smart-ai-link');
+                $a->setAttribute('title', esc_attr($anchor));
+                $parent = $text_node->parentNode;
+                if ($parent !== null) {
+                    if ($before !== '') $parent->insertBefore($dom->createTextNode($before), $text_node);
+                    $parent->insertBefore($a, $text_node);
+                    if ($after !== '') $parent->insertBefore($dom->createTextNode($after), $text_node);
+                    $parent->removeChild($text_node);
+                    $used_anchors[] = $anchor;
+                    $used_urls[] = $url;
+                    $links_added++;
+                    $inserted = true;
+                    break;
+                }
+            }
+        }
+        if ($inserted) continue;
+        // 3. As last resort, insert at start of first suitable text node
+        foreach ($text_nodes as $text_node) {
+            $text = $text_node->nodeValue;
+            if (trim($text) !== '' && mb_strlen($text) > 10) {
+                // Insert debug comment before the link
+                $comment = $dom->createComment('Smart AI Linker: forcibly inserted "' . $anchor . '" to ' . $url);
+                $a = $dom->createElement('a', htmlspecialchars($anchor, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+                $a->setAttribute('href', esc_url($url));
+                $a->setAttribute('class', 'smart-ai-link');
+                $a->setAttribute('title', esc_attr($anchor));
+                $parent = $text_node->parentNode;
+                if ($parent !== null) {
+                    $parent->insertBefore($comment, $text_node);
+                    $parent->insertBefore($a, $text_node);
+                    $parent->insertBefore($dom->createTextNode(' '), $text_node);
+                    $used_anchors[] = $anchor;
+                    $used_urls[] = $url;
+                    $links_added++;
+                    break;
+                }
+            }
+        }
+    }
+    $new_content = '';
+    foreach ($dom->getElementsByTagName('div')->item(0)->childNodes as $child) {
+        $new_content .= $dom->saveHTML($child);
+    }
+    libxml_clear_errors();
+    $seen_urls = [];
+    $new_content = preg_replace_callback('/<a\s+[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)<\/a>/i', function($matches) use (&$seen_urls) {
+        $url = $matches[1];
+        $anchor = $matches[2];
+        if (!in_array($url, $seen_urls)) {
+            $seen_urls[] = $url;
+            return $matches[0];
+        } else {
+            return $anchor;
+        }
+    }, $new_content);
+    return $new_content;
+}, 999);
+// --- end the_content filter ---
