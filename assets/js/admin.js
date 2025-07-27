@@ -84,26 +84,38 @@
         });
     }
     
-    // Initialize tooltips
+    // Initialize tooltips (gracefully handle if jQuery UI is not available)
     function initTooltips() {
-        $('.tooltip-trigger').tooltip({
-            content: function() {
-                return $(this).attr('title');
-            },
-            tooltipClass: 'smart-ai-tooltip',
-            position: {
-                my: 'center bottom-10',
-                at: 'center top',
-                using: function(position, feedback) {
-                    $(this).css(position);
-                    $('<div>')
-                        .addClass('arrow')
-                        .addClass(feedback.vertical)
-                        .addClass(feedback.horizontal)
-                        .appendTo(this);
+        // Check if jQuery UI tooltip is available
+        if (typeof $.fn.tooltip === 'function') {
+            $('.tooltip-trigger').tooltip({
+                content: function() {
+                    return $(this).attr('title');
+                },
+                tooltipClass: 'smart-ai-tooltip',
+                position: {
+                    my: 'center bottom-10',
+                    at: 'center top',
+                    using: function(position, feedback) {
+                        $(this).css(position);
+                        $('<div>')
+                            .addClass('arrow')
+                            .addClass(feedback.vertical)
+                            .addClass(feedback.horizontal)
+                            .appendTo(this);
+                    }
                 }
-            }
-        });
+            });
+        } else {
+            // Fallback: use browser native tooltips
+            $('.tooltip-trigger').each(function() {
+                var $this = $(this);
+                var title = $this.data('tooltip') || $this.attr('title');
+                if (title) {
+                    $this.attr('title', title);
+                }
+            });
+        }
     }
     
     // Initialize form handlers
@@ -615,6 +627,12 @@
         $(document).on('click', '#smart-ai-linker-generate', function(e) {
             e.preventDefault();
             
+            // Check if smartAILinker is defined
+            if (typeof smartAILinker === 'undefined') {
+                console.error('smartAILinker is not defined');
+                return;
+            }
+            
             var $button = $(this);
             var $spinner = $button.siblings('.spinner');
             var $message = $('#smart-ai-linker-message');
@@ -622,11 +640,11 @@
             // Disable button and show spinner
             $button.prop('disabled', true);
             $spinner.addClass('is-active');
-            $message.removeClass('error success').text(smartAILinker.i18n.generating);
+            $message.removeClass('error success').text(smartAILinker.i18n.generating || 'Generating links...');
             
             // Make AJAX request to generate links
             $.ajax({
-                url: smartAILinker.ajax_url,
+                url: smartAILinker.ajaxUrl || ajaxurl,
                 type: 'POST',
                 data: {
                     action: 'smart_ai_linker_generate_links',
@@ -671,7 +689,13 @@
         $(document).on('click', '#smart-ai-linker-clear', function(e) {
             e.preventDefault();
             
-            if (!confirm(smartAILinker.i18n.confirm_clear || 'Are you sure you want to clear all generated links?')) {
+            // Check if smartAILinker is defined
+            if (typeof smartAILinker === 'undefined') {
+                console.error('smartAILinker is not defined');
+                return;
+            }
+            
+            if (!confirm(smartAILinker.i18n.clearConfirm || 'Are you sure you want to clear all generated links?')) {
                 return;
             }
             
@@ -686,7 +710,7 @@
             
             // Make AJAX request to clear links
             $.ajax({
-                url: smartAILinker.ajax_url,
+                url: smartAILinker.ajaxUrl || ajaxurl,
                 type: 'POST',
                 data: {
                     action: 'smart_ai_linker_clear_links',
@@ -696,7 +720,7 @@
                 success: function(response) {
                     if (response.success) {
                         $message.removeClass('error').addClass('success')
-                            .text(response.data.message || 'Links cleared successfully');
+                            .text(response.data || 'Links cleared successfully');
                         
                         // Reset stats
                         $('.smart-ai-stats .links-created').text('0');
@@ -710,7 +734,7 @@
                         }
                     } else {
                         $message.removeClass('success').addClass('error')
-                            .text(response.data.message || smartAILinker.i18n.error || 'An error occurred');
+                            .text(response.data || smartAILinker.i18n.error || 'An error occurred');
                     }
                 },
                 error: function(xhr, status, error) {

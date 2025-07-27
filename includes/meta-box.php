@@ -12,6 +12,7 @@ if (!defined('ABSPATH'))
 add_action('add_meta_boxes', 'smart_ai_linker_add_meta_box');
 add_action('admin_enqueue_scripts', 'smart_ai_linker_admin_scripts');
 add_action('wp_ajax_smart_ai_linker_generate_links', 'smart_ai_linker_ajax_generate_links');
+add_action('wp_ajax_smart_ai_linker_clear_links', 'smart_ai_linker_ajax_clear_links');
 
 /**
  * Add meta box to post editor
@@ -46,17 +47,43 @@ function smart_ai_linker_meta_box_callback($post) {
         <?php if ($processed) : ?>
             <p>Links were automatically added to this post on <?php echo esc_html($processed); ?>.</p>
             
-            <?php if (!empty($added_links)) : ?>
+                <?php if (!empty($added_links)) : ?>
                 <h4>Added Links:</h4>
                 <ul>
-                    <?php foreach ($added_links as $link) : ?>
-                        <li>
-                            <a href="<?php echo esc_url($link['url']); ?>" target="_blank">
-                                <?php echo esc_html($link['anchor']); ?>
-                            </a>
-                        </li>
-                    <?php endforeach; ?>
+                    <?php 
+                    $actually_added = array();
+                    $post_content = get_post_field('post_content', $post->ID);
+                    
+                    // Only show links that are actually in the post content
+                    foreach ($added_links as $link) {
+                        $anchor = isset($link['anchor']) ? $link['anchor'] : (isset($link['anchor_text']) ? $link['anchor_text'] : '');
+                        $url = isset($link['url']) ? $link['url'] : '';
+                        
+                        if ($anchor && $url) {
+                            // Check if this link actually exists in the post content
+                            $link_pattern = '/<a[^>]*href=["\']' . preg_quote($url, '/') . '["\'][^>]*>' . preg_quote($anchor, '/') . '<\/a>/i';
+                            if (preg_match($link_pattern, $post_content)) {
+                                $actually_added[] = array('anchor' => $anchor, 'url' => $url);
+                            }
+                        }
+                    }
+                    
+                    if (!empty($actually_added)) :
+                        foreach ($actually_added as $link) : ?>
+                            <li>
+                                <a href="<?php echo esc_url($link['url']); ?>" target="_blank">
+                                    <?php echo esc_html($link['anchor']); ?>
+                                </a>
+                            </li>
+                        <?php endforeach;
+                    else : ?>
+                        <li><em>No links were successfully inserted into the content.</em></li>
+                    <?php endif; ?>
                 </ul>
+                
+                <?php if (count($actually_added) !== count($added_links)) : ?>
+                    <p><small><em>Note: <?php echo count($added_links) - count($actually_added); ?> suggested links could not be inserted because the anchor text was not found in the content.</em></small></p>
+                <?php endif; ?>
             <?php endif; ?>
         <?php else : ?>
             <p>No links have been generated for this post yet.</p>
@@ -125,16 +152,19 @@ function smart_ai_linker_admin_scripts($hook) {
         true
     );
     
+    // Include jQuery UI for Tooltip functionality
+    wp_enqueue_script('jquery-ui-tooltip');
+    
     // Localize script with AJAX URL and nonce
     wp_localize_script('smart-ai-linker-admin', 'smartAILinker', array(
         'ajaxUrl' => admin_url('admin-ajax.php'),
-        'nonce' => wp_create_nonce('smart_ai_linker_nonce'),
-        'postId' => $post->ID,
-        'i18n' => array(
-            'generating' => __('Generating links...', 'smart-ai-linker'),
-            'error' => __('An error occurred. Please try again.', 'smart-ai-linker'),
-            'success' => __('Links generated successfully! Refreshing...', 'smart-ai-linker'),
-            'clearing' => __('Clearing links...', 'smart-ai-linker'),
+        'nonce'   => wp_create_nonce('smart_ai_linker_nonce'),
+        'postId'  => $post->ID,
+        'i18n'    => array(
+            'generating'   => __('Generating links...', 'smart-ai-linker'),
+            'error'        => __('An error occurred. Please try again.', 'smart-ai-linker'),
+            'success'      => __('Links generated successfully! Refreshing...', 'smart-ai-linker'),
+            'clearing'     => __('Clearing links...', 'smart-ai-linker'),
             'clearConfirm' => __('Are you sure you want to clear all generated links? This cannot be undone.', 'smart-ai-linker'),
         )
     ));
@@ -155,50 +185,112 @@ function smart_ai_linker_ajax_generate_links() {
     }
     
     $post_id = intval($_POST['post_id']);
-    $action = isset($_POST['action_type']) ? $_POST['action_type'] : 'generate';
+    $post = get_post($post_id);
+    if (!$post) {
+        wp_send_json_error('Post not found');
+    }
     
-    if ($action === 'clear') {
-        // Clear existing links
-        delete_post_meta($post_id, '_smart_ai_linker_processed');
-        delete_post_meta($post_id, '_smart_ai_linker_suggestions');
-        delete_post_meta($post_id, '_smart_ai_linker_added_links');
+    // Clear existing data first
+    delete_post_meta($post_id, '_smart_ai_linker_processed');
+    delete_post_meta($post_id, '_smart_ai_linker_suggestions');
+    delete_post_meta($post_id, '_smart_ai_linker_added_links');
+    
+    // Get content without shortcodes and tags
+    $content = wp_strip_all_tags(strip_shortcodes($post->post_content));
+    
+    if (empty($content)) {
+        wp_send_json_error('Post content is empty');
+    }
+    
+    // Get silo post IDs for priority linking
+    $silo_post_ids = array();
+    if (class_exists('Smart_AI_Linker_Silos')) {
+        $silo_instance = Smart_AI_Linker_Silos::get_instance();
+        $post_silos = $silo_instance->get_post_silos($post_id);
+        if (!empty($post_silos)) {
+            global $wpdb;
+            $silo_ids = array();
+            foreach ($post_silos as $silo) {
+                $silo_ids[] = is_object($silo) ? $silo->id : $silo['id'];
+            }
+            $placeholders = implode(',', array_fill(0, count($silo_ids), '%d'));
+            $query_params = array_merge($silo_ids, array($post_id));
+            $query = $wpdb->prepare(
+                "SELECT post_id FROM {$silo_instance->silo_relationships} WHERE silo_id IN ($placeholders) AND post_id != %d",
+                $query_params
+            );
+            $silo_post_ids = $wpdb->get_col($query);
+        }
+    }
+    
+    // Get AI suggestions with post type and silo context
+    $suggestions = smart_ai_linker_get_ai_link_suggestions($content, $post_id, $post->post_type, $silo_post_ids);
+    
+    if (empty($suggestions)) {
+        wp_send_json_error('No link suggestions were generated');
+    }
+    
+    // Limit the number of links based on settings
+    $max_links = max(7, (int) get_option('smart_ai_linker_max_links', 7));
+    $suggestions = array_slice($suggestions, 0, $max_links);
+    
+    // Insert links into the post
+    $result = smart_ai_linker_insert_links_into_post($post_id, $suggestions);
+    
+    if ($result) {
+        // Mark as processed and store the actual inserted links
+        update_post_meta($post_id, '_smart_ai_linker_processed', current_time('mysql'));
+        update_post_meta($post_id, '_smart_ai_linker_added_links', $suggestions);
         
-        wp_send_json_success('Links cleared');
+        wp_send_json_success(array(
+            'message' => 'Links generated successfully',
+            'count' => count($suggestions)
+        ));
     } else {
-        // Generate new links
-        $post = get_post($post_id);
-        if (!$post) {
-            wp_send_json_error('Post not found');
-        }
-        
-        // Clear existing data
+        wp_send_json_error('Failed to insert links into the post');
+    }
+}
+
+/**
+ * Handle AJAX request to clear links
+ */
+function smart_ai_linker_ajax_clear_links() {
+    // Verify nonce
+    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'smart_ai_linker_nonce')) {
+        wp_send_json_error('Invalid nonce');
+    }
+    
+    // Check user capabilities
+    if (!current_user_can('edit_post', $_POST['post_id'])) {
+        wp_send_json_error('Insufficient permissions');
+    }
+    
+    $post_id = intval($_POST['post_id']);
+    $post = get_post($post_id);
+    if (!$post) {
+        wp_send_json_error('Post not found');
+    }
+    
+    // Remove all smart-ai-link anchors from post content
+    $content = $post->post_content;
+    
+    // Remove links with smart-ai-link class
+    $content = preg_replace('/<a\s+[^>]*class=["\']smart-ai-link["\'][^>]*>(.*?)<\/a>/i', '$1', $content);
+    
+    // Update the post content
+    $result = wp_update_post(array(
+        'ID' => $post_id,
+        'post_content' => $content
+    ));
+    
+    if (!is_wp_error($result) && $result !== 0) {
+        // Clear meta data
         delete_post_meta($post_id, '_smart_ai_linker_processed');
         delete_post_meta($post_id, '_smart_ai_linker_suggestions');
         delete_post_meta($post_id, '_smart_ai_linker_added_links');
         
-        // Get content without shortcodes and tags
-        $content = wp_strip_all_tags(strip_shortcodes($post->post_content));
-        
-        if (empty($content)) {
-            wp_send_json_error('Post content is empty');
-        }
-        
-        // Get AI suggestions
-        $suggestions = smart_ai_linker_get_ai_link_suggestions($content, $post_id);
-        
-        if (empty($suggestions)) {
-            wp_send_json_error('No link suggestions were generated');
-        }
-        
-        // Insert links into the post
-        $result = smart_ai_linker_insert_links_into_post($post_id, $suggestions);
-        
-        if ($result) {
-            // Mark as processed
-            update_post_meta($post_id, '_smart_ai_linker_processed', current_time('mysql'));
-            wp_send_json_success('Links generated successfully');
-        } else {
-            wp_send_json_error('Failed to insert links into the post');
-        }
+        wp_send_json_success('Links cleared successfully');
+    } else {
+        wp_send_json_error('Failed to clear links from the post');
     }
 }

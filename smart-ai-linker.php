@@ -3,7 +3,7 @@
 /**
  * Plugin Name: Smart AI Linker
  * Description: AI-powered internal linking and silo structuring plugin using DeepSeek API.
- * Version: 1.0.0
+ * Version: 1.0
  * Author: NerdX Solution
  * Text Domain: smart-ai-linker
  * Domain Path: /languages

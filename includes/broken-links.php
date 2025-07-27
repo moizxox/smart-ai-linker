@@ -132,13 +132,20 @@ class Smart_AI_Linker_Broken_Links {
         $site_url = get_site_url();
         $is_internal = (strpos($url, $site_url) === 0);
         $response = wp_remote_head($url, [
-            'timeout' => 5,
+            'timeout'     => 5,
             'redirection' => 5,
-            'sslverify' => false,
-            'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'user-agent'  => 'Mozilla/5.0 (Smart-AI-Linker)'
         ]);
-        // Consider it broken if there's an error or status code is 4xx/5xx
-        return is_wp_error($response) || ($response['response']['code'] >= 400);
+        if (is_wp_error($response) || (int) $response['response']['code'] >= 400) {
+            // Some servers block HEAD; try GET with small timeout
+            $response = wp_remote_get($url, [
+                'timeout'     => 5,
+                'redirection' => 5,
+                'user-agent'  => 'Mozilla/5.0 (Smart-AI-Linker)',
+                'limit_response_size' => 1024
+            ]);
+        }
+        return is_wp_error($response) || ((int) $response['response']['code'] >= 400);
     }
     
     /**

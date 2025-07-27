@@ -93,13 +93,6 @@ function smart_ai_linker_generate_internal_links($post_ID, $post = null, $update
         $content = (string) $content;
     }
     
-    // Remove any existing links to avoid duplicates
-    if (is_string($content)) {
-        $content = preg_replace('/<a\b[^>]*>(.*?)<\/a>/i', '$1', $content);
-    } else {
-        error_log('[Smart AI] Content is not a string, cannot process links');
-        return $post_ID;
-    }
     
     // Strip shortcodes and tags for the AI analysis
     $clean_content = wp_strip_all_tags(strip_shortcodes($content));
@@ -156,31 +149,6 @@ function smart_ai_linker_generate_internal_links($post_ID, $post = null, $update
         return $post_ID;
     }
 
-    // --- Ensure at least 2 page links for posts ---
-    if ($post_type === 'post') {
-        $page_links = array_filter($suggestions, function($s) {
-            $url = is_array($s) ? $s['url'] : $s->url;
-            return strpos($url, '/page/') !== false;
-        });
-        if (count($page_links) < 2) {
-            // Find available pages not already in suggestions
-            $existing_urls = array_map(function($s) { return is_array($s) ? $s['url'] : $s->url; }, $suggestions);
-            $pages = get_posts(['post_type'=>'page','post_status'=>'publish','posts_per_page'=>5,'exclude'=>[$post_ID],'fields'=>'ids']);
-            $added_pages = 0;
-            foreach ($pages as $pid) {
-                $url = get_permalink($pid);
-                if (!in_array($url, $existing_urls)) {
-                    $suggestions[] = [
-                        'anchor' => get_the_title($pid),
-                        'url' => $url
-                    ];
-                    $added_pages++;
-                    if (count($page_links) + $added_pages >= 2) break;
-                }
-            }
-        }
-    }
-    // --- End ensure at least 2 page links ---
 
     if (empty($suggestions)) {
         error_log('[Smart AI] No valid link suggestions received');
@@ -190,7 +158,10 @@ function smart_ai_linker_generate_internal_links($post_ID, $post = null, $update
     error_log('[Smart AI] Received ' . count($suggestions) . ' link suggestions');
     
     // Ensure we have the maximum number of links based on settings
-    $max_links = max(7, (int) get_option('smart_ai_linker_max_links', 7));
+    // Respect admin-defined limit (1-7) but never exceed 7
+    $option_max = (int) get_option('smart_ai_linker_max_links', 7);
+    $option_max = $option_max > 0 ? min(7, $option_max) : 7;
+    $max_links = $option_max;
     $suggestions = array_slice($suggestions, 0, $max_links);
     
     // Log the number of links we're trying to insert
@@ -270,6 +241,8 @@ function smart_ai_linker_generate_internal_links($post_ID, $post = null, $update
         error_log('[Smart AI] Successfully processed post ' . $post_ID . ' with ' . count($suggestions) . ' links');
     }
     
+    // Run duplicate-link cleanup unconditionally
+    smart_ai_linker_deduplicate_links($post_ID);
     // Always return the post ID to maintain WordPress filter compatibility
     return $post_ID;
 }
@@ -290,6 +263,7 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
     }
 
     $post = get_post($post_ID);
+    $source_type = $post ? $post->post_type : 'post';
     if (!$post) {
         return false;
     }
@@ -307,7 +281,9 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
     $used_anchors = [];
     $used_urls = [];
     $links_added = 0;
-    $max_links = max(7, (int) get_option('smart_ai_linker_max_links', 7));
+    $option_max = (int) get_option('smart_ai_linker_max_links', 7);
+    $option_max = $option_max > 0 ? min(7, $option_max) : 7;
+    $max_links = $option_max;
 
     // Distribute links: intro, middle, end
     $num_paragraphs = count($paragraphs);
@@ -323,6 +299,13 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
         $anchor = is_array($link) ? ($link['anchor'] ?? '') : ($link->anchor ?? '');
         $url = is_array($link) ? ($link['url'] ?? '') : ($link->url ?? '');
         if (empty($anchor) || empty($url)) continue;
+        // If the source is a PAGE, do not link to posts
+        if ($source_type === 'page') {
+            $target_post_id = url_to_postid($url);
+            if ($target_post_id && get_post_type($target_post_id) !== 'page') {
+                continue; // skip – violates page→post rule
+            }
+        }
         if (in_array($anchor, $used_anchors, true) || in_array($url, $used_urls, true)) continue;
         // Try to insert in target paragraphs first
         $inserted = false;
@@ -377,26 +360,73 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
     return false;
 }
 
+
+/**
+ * Deduplicate repeated links that point to the same URL (keep only first occurrence).
+ * Runs independently so even posts with no new links still get cleaned.
+ *
+ * @param int $post_ID
+ */
+function smart_ai_linker_deduplicate_links($post_ID){
+    $post = get_post($post_ID);
+    if(!$post){
+        return;
+    }
+    $content = $post->post_content;
+    if(empty($content)){
+        return;
+    }
+    $original = $content;
+    $seen_urls = [];
+    $content = preg_replace_callback('/<a\s+[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)<\/a>/is',function($matches) use (&$seen_urls){
+        $url = $matches[1];
+        $anchor = $matches[2];
+        if(!in_array($url,$seen_urls,true)){
+            $seen_urls[] = $url;
+            return $matches[0];
+        }
+        return $anchor; // strip duplicate link keep anchor
+    },$content);
+    if($content!==$original){
+        remove_action('save_post','smart_ai_linker_generate_internal_links',20);
+        wp_update_post(['ID'=>$post_ID,'post_content'=>$content]);
+        add_action('save_post','smart_ai_linker_generate_internal_links',20,3);
+    }
+}
+
 // --- 301 Redirects for Changed Permalinks ---
+// This handles automatic redirects when post slugs are changed to prevent broken links
 add_action('post_updated', function($post_ID, $post_after, $post_before) {
-    if ($post_after->post_type !== 'post' && $post_after->post_type !== 'page') return;
+    // Only handle posts and pages
+    if (!in_array($post_after->post_type, ['post', 'page'])) {
+        return;
+    }
+    
     $old_slug = $post_before->post_name;
     $new_slug = $post_after->post_name;
+    
+    // If slug changed, create a redirect from old URL to new URL
     if ($old_slug && $new_slug && $old_slug !== $new_slug) {
-        $old_url = get_permalink($post_before);
+        $old_url = str_replace($new_slug, $old_slug, get_permalink($post_after));
         $new_url = get_permalink($post_after);
+        
         if ($old_url && $new_url && $old_url !== $new_url) {
             $redirects = get_option('smart_ai_linker_redirects', []);
-            $redirects[trailingslashit(parse_url($old_url, PHP_URL_PATH))] = $new_url;
+            $old_path = parse_url($old_url, PHP_URL_PATH);
+            $redirects[$old_path] = $new_url;
             update_option('smart_ai_linker_redirects', $redirects);
+            
+            error_log('[Smart AI] Created redirect from ' . $old_url . ' to ' . $new_url);
         }
     }
 }, 10, 3);
 
+// Handle the actual redirects
 add_action('template_redirect', function() {
     if (is_404()) {
-        $request_path = trailingslashit(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH));
+        $request_path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
         $redirects = get_option('smart_ai_linker_redirects', []);
+        
         if (isset($redirects[$request_path])) {
             wp_redirect($redirects[$request_path], 301);
             exit;

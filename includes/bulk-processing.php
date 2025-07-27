@@ -78,12 +78,17 @@ function smart_ai_linker_bulk_action_handler($redirect_to, $doaction, $post_ids)
         $suggestions = smart_ai_linker_get_ai_link_suggestions($clean_content, $post_id, $post->post_type, $silo_post_ids);
         
         if (empty($suggestions) || !is_array($suggestions)) {
+            if (is_wp_error($suggestions)) {
+                error_log('[Smart AI] Bulk DeepSeek error for post ' . $post_id . ': ' . $suggestions->get_error_message());
+            }
             $skipped++;
             continue;
         }
 
         // Limit the number of links based on settings
-        $max_links = max(7, (int) get_option('smart_ai_linker_max_links', 7));
+        $option_max = (int) get_option('smart_ai_linker_max_links', 7);
+        $option_max = $option_max > 0 ? min(7, $option_max) : 7;
+        $max_links = $option_max;
         $suggestions = array_slice($suggestions, 0, $max_links);
 
         // Insert the links
@@ -290,7 +295,9 @@ function smart_ai_linker_process_all_ajax() {
         }
         
         // Limit the number of links based on settings
-        $max_links = max(7, (int) get_option('smart_ai_linker_max_links', 7));
+        $option_max = (int) get_option('smart_ai_linker_max_links', 7);
+        $option_max = $option_max > 0 ? min(7, $option_max) : 7;
+        $max_links = $option_max;
         $suggestions = array_slice($suggestions, 0, $max_links);
         
         // Insert the links
