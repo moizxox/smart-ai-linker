@@ -624,29 +624,7 @@ add_filter('the_content', function($content) {
                 }
             }
         }
-        if ($inserted) continue;
-        // 3. As last resort, insert at start of first suitable text node
-        foreach ($text_nodes as $text_node) {
-            $text = $text_node->nodeValue;
-            if (trim($text) !== '' && mb_strlen($text) > 10) {
-                // Insert debug comment before the link
-                $comment = $dom->createComment('Smart AI Linker: forcibly inserted "' . $anchor . '" to ' . $url);
-                $a = $dom->createElement('a', htmlspecialchars($anchor, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
-                $a->setAttribute('href', esc_url($url));
-                $a->setAttribute('class', 'smart-ai-link');
-                $a->setAttribute('title', esc_attr($anchor));
-                $parent = $text_node->parentNode;
-                if ($parent !== null) {
-                    $parent->insertBefore($comment, $text_node);
-                    $parent->insertBefore($a, $text_node);
-                    $parent->insertBefore($dom->createTextNode(' '), $text_node);
-                    $used_anchors[] = $anchor;
-                    $used_urls[] = $url;
-                    $links_added++;
-                    break;
-                }
-            }
-        }
+        // No forced insertion, no debug comment, no new words
     }
     $new_content = '';
     foreach ($dom->getElementsByTagName('div')->item(0)->childNodes as $child) {
