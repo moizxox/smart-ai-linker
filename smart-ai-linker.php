@@ -4,7 +4,8 @@
  * Plugin Name: Smart AI Linker
  * Description: AI-powered internal linking and silo structuring plugin using DeepSeek API.
  * Version: 1.0
- * Author: NerdX Solution
+ * Author: Sitelinx (https://seo.sitelinx.co.il)
+ * Author URI: https://seo.sitelinx.co.il
  * Text Domain: smart-ai-linker
  * Domain Path: /languages
  * Requires at least: 5.0
@@ -87,6 +88,42 @@ if (defined('WP_DEBUG') && WP_DEBUG && !defined('SMART_AI_LINKER_TEST_LOADED')) 
             }
         );
     }, 11);  // Higher priority to ensure main menu is processed first
+}
+
+// Add plugin verification logic
+function smart_ai_linker_is_verified() {
+    return get_option('smart_ai_linker_verified', '0') === '1';
+}
+
+function smart_ai_linker_require_verification() {
+    // Only allow access to the settings page for verification
+    if (is_admin() && isset($_GET['page']) && $_GET['page'] === 'smart-ai-linker') {
+        add_action('admin_notices', function() {
+            echo '<div class="notice notice-error"><p><strong>Smart AI Linker:</strong> Please verify the plugin to unlock all features.</p></div>';
+        });
+        return;
+    }
+    // Remove plugin menus and features
+    add_action('admin_menu', function() {
+        remove_menu_page('smart-ai-linker');
+    }, 999);
+    // Optionally, block plugin-specific actions here
+}
+
+// Reset verification on activation
+function smart_ai_linker_activation_reset_verification() {
+    update_option('smart_ai_linker_verified', '0');
+}
+register_activation_hook(__FILE__, 'smart_ai_linker_activation_reset_verification');
+
+// Always include the settings page so it is available for verification
+require_once SMARTLINK_AI_PATH . 'admin/setting.page.php';
+
+// Only load other features if verified
+if (!smart_ai_linker_is_verified()) {
+    add_action('admin_init', 'smart_ai_linker_require_verification', 0);
+    // Do not load any other plugin code
+    return;
 }
 
 // Only proceed if compatibility check passes and the plugin isn't already loaded

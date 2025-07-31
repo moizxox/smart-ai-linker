@@ -29,6 +29,7 @@ function smart_ai_linker_bulk_action_handler($redirect_to, $doaction, $post_ids)
 
     $processed = 0;
     $skipped = 0;
+    $skipped_details = [];
     
     // Include necessary files if not already loaded
     if (!function_exists('smart_ai_linker_get_ai_link_suggestions')) {
@@ -44,6 +45,7 @@ function smart_ai_linker_bulk_action_handler($redirect_to, $doaction, $post_ids)
         // Skip if post doesn't exist or is not published
         if (!$post || $post->post_status !== 'publish') {
             $skipped++;
+            $skipped_details[] = sprintf('Post ID %d skipped: not published or does not exist', $post_id);
             continue;
         }
 
@@ -51,8 +53,10 @@ function smart_ai_linker_bulk_action_handler($redirect_to, $doaction, $post_ids)
         $clean_content = wp_strip_all_tags(strip_shortcodes($post->post_content));
         
         // Skip if content is too short
-        if (str_word_count($clean_content) < 30) {
+        $word_count = str_word_count($clean_content);
+        if ($word_count < 10) {
             $skipped++;
+            $skipped_details[] = sprintf('Post ID %d skipped: only %d words', $post_id, $word_count);
             continue;
         }
 
@@ -82,6 +86,7 @@ function smart_ai_linker_bulk_action_handler($redirect_to, $doaction, $post_ids)
                 error_log('[Smart AI] Bulk DeepSeek error for post ' . $post_id . ': ' . $suggestions->get_error_message());
             }
             $skipped++;
+            $skipped_details[] = sprintf('Post ID %d skipped: no AI suggestions', $post_id);
             continue;
         }
 
@@ -100,6 +105,7 @@ function smart_ai_linker_bulk_action_handler($redirect_to, $doaction, $post_ids)
             $processed++;
         } else {
             $skipped++;
+            $skipped_details[] = sprintf('Post ID %d skipped: failed to insert links', $post_id);
         }
     }
 
@@ -108,6 +114,7 @@ function smart_ai_linker_bulk_action_handler($redirect_to, $doaction, $post_ids)
         array(
             'smart_ai_links_processed' => $processed,
             'smart_ai_links_skipped' => $skipped,
+            'smart_ai_links_skipped_details' => urlencode(json_encode($skipped_details)),
         ),
         $redirect_to
     );
@@ -124,9 +131,11 @@ function smart_ai_linker_bulk_admin_notice() {
     if (!empty($_REQUEST['smart_ai_links_processed']) || !empty($_REQUEST['smart_ai_links_skipped'])) {
         $processed = isset($_REQUEST['smart_ai_links_processed']) ? intval($_REQUEST['smart_ai_links_processed']) : 0;
         $skipped = isset($_REQUEST['smart_ai_links_skipped']) ? intval($_REQUEST['smart_ai_links_skipped']) : 0;
-        
+        $skipped_details = [];
+        if (!empty($_REQUEST['smart_ai_links_skipped_details'])) {
+            $skipped_details = json_decode(urldecode($_REQUEST['smart_ai_links_skipped_details']), true);
+        }
         $message = '';
-        
         if ($processed > 0) {
             $message .= sprintf(
                 _n('%d post was successfully processed with AI links.', '%d posts were successfully processed with AI links.', $processed, 'smart-ai-linker'),
@@ -134,15 +143,22 @@ function smart_ai_linker_bulk_admin_notice() {
             );
             $message .= ' ';
         }
-        
         if ($skipped > 0) {
             $message .= sprintf(
-                _n('%d post was skipped (already processed or insufficient content).', '%d posts were skipped (already processed or insufficient content).', $skipped, 'smart-ai-linker'),
+                _n('%d post was skipped.', '%d posts were skipped.', $skipped, 'smart-ai-linker'),
                 $skipped
             );
+            if (!empty($skipped_details)) {
+                $message .= '<ul style="margin:8px 0 0 20px;">';
+                foreach ($skipped_details as $detail) {
+                    $message .= '<li>' . esc_html($detail) . '</li>';
+                }
+                $message .= '</ul>';
+            }
         }
-        
-        echo '<div class="notice notice-success is-dismissible"><p>' . esc_html($message) . '</p></div>';
+        if (!empty($message)) {
+            echo '<div class="notice notice-info is-dismissible"><p>' . $message . '</p></div>';
+        }
     }
 }
 add_action('admin_notices', 'smart_ai_linker_bulk_admin_notice');

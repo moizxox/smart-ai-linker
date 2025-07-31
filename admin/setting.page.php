@@ -26,6 +26,7 @@ function smart_ai_linker_register_settings() {
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_post_types');
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_enable_broken_links');
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_enable_page_to_page');
+    register_setting('smart_ai_linker_settings', 'smart_ai_linker_excluded_posts');
     
     // Add settings section
     add_settings_section(
@@ -83,6 +84,14 @@ function smart_ai_linker_register_settings() {
         'smart-ai-linker',
         'smart_ai_linker_general_section'
     );
+
+    add_settings_field(
+        'smart_ai_linker_excluded_posts_field',
+        'Exclude Posts/Pages from Internal Linking',
+        'smart_ai_linker_excluded_posts_field_callback',
+        'smart-ai-linker',
+        'smart_ai_linker_general_section'
+    );
 }
 
 /**
@@ -98,6 +107,9 @@ function smart_ai_linker_settings_link($links) {
  * Add admin menu item
  */
 function smart_ai_linker_admin_menu() {
+    if (!current_user_can('administrator')) {
+        return;
+    }
     add_menu_page(
         'Smart AI Linker',
         'Smart AI Linker',
@@ -115,6 +127,39 @@ function smart_ai_linker_admin_menu() {
 function smart_ai_linker_settings_page() {
     // Check user capabilities
     if (!current_user_can('manage_options')) {
+        return;
+    }
+    // Verification logic
+    if (function_exists('smart_ai_linker_is_verified') && !smart_ai_linker_is_verified()) {
+        if (isset($_POST['smart_ai_linker_verify']) && isset($_POST['smart_ai_linker_password'])) {
+            $password = trim($_POST['smart_ai_linker_password']);
+            if ($password === 'tamir@gmail.com') {
+                update_option('smart_ai_linker_verified', '1');
+                echo '<div class="notice notice-success"><p>Plugin verified! Please reload the page.</p></div>';
+                echo '<script>setTimeout(function(){window.location.reload();}, 1000);</script>';
+                return;
+            } else {
+                echo '<div class="notice notice-error"><p>Incorrect password. Please try again.</p></div>';
+            }
+        }
+        ?>
+        <div class="wrap">
+            <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
+            <form method="post">
+                <table class="form-table">
+                    <tr>
+                        <th scope="row">Verification Password</th>
+                        <td>
+                            <input type="password" name="smart_ai_linker_password" class="regular-text" required />
+                        </td>
+                    </tr>
+                </table>
+                <p class="submit">
+                    <button type="submit" name="smart_ai_linker_verify" class="button button-primary">Verify Plugin</button>
+                </p>
+            </form>
+        </div>
+        <?php
         return;
     }
     
@@ -225,4 +270,42 @@ function smart_ai_linker_enable_page_to_page_field_callback() {
     $enabled = get_option('smart_ai_linker_enable_page_to_page', '1');
     echo "<label><input type='checkbox' name='smart_ai_linker_enable_page_to_page' value='1' " . checked('1', $enabled, false) . '> Enable linking between pages</label>';
     echo '<p class="description">When enabled, the plugin will suggest and create links between pages as well as posts.</p>';
+}
+
+function smart_ai_linker_excluded_posts_field_callback() {
+    $excluded = get_option('smart_ai_linker_excluded_posts', []);
+    if (!is_array($excluded)) $excluded = [];
+    $args = array(
+        'post_type' => array('post', 'page'),
+        'posts_per_page' => 100,
+        'post_status' => array('publish', 'draft', 'pending', 'private', 'future'),
+        'fields' => 'ids',
+    );
+    $ids = get_posts($args);
+    echo '<input type="text" id="smart-ai-linker-exclude-search" placeholder="Search posts/pages..." style="width: 100%; max-width: 400px; margin-bottom: 8px;" onkeyup="smartAiLinkerFilterExcludeList()">';
+    echo '<div id="smart-ai-linker-exclude-list" style="max-height: 220px; overflow-y: auto; border: 1px solid #ccc; padding: 8px; background: #fff; width: 100%; max-width: 400px;">';
+    foreach ($ids as $id) {
+        $title = esc_html(get_the_title($id));
+        $checked = in_array($id, $excluded) ? 'checked' : '';
+        echo "<label class='smart-ai-linker-exclude-item' style='display:block; margin-bottom:4px;'><input type='checkbox' name='smart_ai_linker_excluded_posts[]' value='$id' $checked> [$id] $title</label>";
+    }
+    echo '</div>';
+    echo '<p class="description">Select posts or pages to exclude from all internal linking (to and from). Use the search box to filter. Hold Ctrl (Cmd on Mac) to select multiple.</p>';
+    // Add inline JS for filtering
+    echo '<script>
+    function smartAiLinkerFilterExcludeList() {
+        var input = document.getElementById("smart-ai-linker-exclude-search");
+        var filter = input.value.toLowerCase();
+        var list = document.getElementById("smart-ai-linker-exclude-list");
+        var items = list.getElementsByClassName("smart-ai-linker-exclude-item");
+        for (var i = 0; i < items.length; i++) {
+            var label = items[i];
+            if (label.textContent.toLowerCase().indexOf(filter) > -1) {
+                label.style.display = "block";
+            } else {
+                label.style.display = "none";
+            }
+        }
+    }
+    </script>';
 }

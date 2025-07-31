@@ -29,6 +29,9 @@ class Smart_AI_Linker_Admin {
     }
 
     public function add_admin_menu() {
+        if (!current_user_can('administrator')) {
+            return;
+        }
         // Main menu item
         $this->page_hook = add_menu_page(
             __('Smart AI Linker', 'smart-ai-linker'),

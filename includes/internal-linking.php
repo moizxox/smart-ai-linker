@@ -294,6 +294,7 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
         $target_indices = range(0, $num_paragraphs-1);
     }
     $link_idx = 0;
+    $inserted_links = [];
     foreach ($links as $link) {
         if ($links_added >= $max_links) break;
         $anchor = is_array($link) ? ($link['anchor'] ?? '') : ($link->anchor ?? '');
@@ -330,6 +331,7 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
             $used_anchors[] = $anchor;
             $used_urls[] = $url;
             $links_added++;
+            $inserted_links[] = is_array($link) ? $link : [ 'anchor' => $anchor, 'url' => $url ];
         }
     }
     $new_content = implode('', $paragraphs);
@@ -355,6 +357,8 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
             array('%d')
         );
         clean_post_cache($post_ID);
+        // After updating post content, update post meta with only actually inserted links
+        update_post_meta($post_ID, '_smart_ai_linker_added_links', $inserted_links);
         return $result !== false;
     }
     return false;
@@ -524,7 +528,13 @@ add_filter('the_content', function($content) {
     if (!$post || !in_array($post->post_type, array('post','page'))) return $content;
     if (strpos($content, 'class="smart-ai-link"') !== false) return $content;
     $clean_content = wp_strip_all_tags(strip_shortcodes($content));
-    if (str_word_count($clean_content) < 30) return $content;
+    $word_count = str_word_count($clean_content);
+    if ($word_count < 10) {
+        if (function_exists('error_log')) {
+            error_log('[Smart AI] Skipping post ID ' . ($post->ID ?? 'unknown') . ' in the_content filter: only ' . $word_count . ' words');
+        }
+        return $content;
+    }
     $silo_post_ids = [];
     if (class_exists('Smart_AI_Linker_Silos')) {
         $silo_instance = Smart_AI_Linker_Silos::get_instance();
@@ -564,9 +574,21 @@ add_filter('the_content', function($content) {
             if ($target_post_id && get_post_type($target_post_id) !== 'page') continue;
         }
         if (in_array($anchor, $used_anchors, true) || in_array($url, $used_urls, true)) continue;
+        // Only select text nodes NOT inside <a>, <h1>, or <h2>
         $text_nodes = [];
-        foreach ($xpath->query('//text()[not(ancestor::a)]') as $node) {
+        $xpath_query = '//text()[not(ancestor::a) and not(ancestor::h1) and not(ancestor::h2)]';
+        foreach ($xpath->query($xpath_query) as $node) {
             $text_nodes[] = $node;
+        }
+        // Fallback: if no nodes found, use all text nodes not in <a>
+        if (empty($text_nodes)) {
+            foreach ($xpath->query('//text()[not(ancestor::a)]') as $node) {
+                $text_nodes[] = $node;
+            }
+        }
+        // Debug: log how many nodes are found
+        if (function_exists('error_log')) {
+            error_log('[Smart AI] Matched text nodes for linking: ' . count($text_nodes));
         }
         $inserted = false;
         // 1. Try exact match
