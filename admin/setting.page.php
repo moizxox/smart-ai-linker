@@ -107,7 +107,7 @@ function smart_ai_linker_settings_link($links) {
  * Add admin menu item
  */
 function smart_ai_linker_admin_menu() {
-    if (!current_user_can('administrator')) {
+    if (!function_exists('is_authorized_deepseek_user') || !is_authorized_deepseek_user()) {
         return;
     }
     add_menu_page(

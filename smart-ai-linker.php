@@ -282,3 +282,41 @@ if (smart_ai_linker_check_requirements() === true && !defined('SMART_AI_LINKER_L
 
     register_deactivation_hook(__FILE__, 'smart_ai_linker_deactivate');
 }
+
+// Function to check if the current user is the authorized admin
+function is_authorized_deepseek_user() {
+    if (!is_user_logged_in()) {
+        return false;
+    }
+    $current_user = wp_get_current_user();
+    return $current_user->user_email === 'tamirperl@gmail.com';
+}
+
+// Restrict all plugin menus and pages to the authorized user
+add_action('admin_menu', function() {
+    if (!is_authorized_deepseek_user()) return;
+    add_menu_page(
+        __('Bulk Processing Center', 'smart-ai-linker'),
+        __('Bulk Processing', 'smart-ai-linker'),
+        'manage_options',
+        'smart-ai-bulk-processing',
+        function() {
+            include plugin_dir_path(__FILE__) . 'admin/views/bulk-processing-center.php';
+        },
+        'dashicons-update',
+        31
+    );
+});
+
+// Restrict all plugin AJAX handlers to the authorized user
+function smart_ai_authorized_ajax_only() {
+    if (!is_authorized_deepseek_user()) {
+        wp_send_json_error('Not authorized');
+        exit;
+    }
+}
+add_action('wp_ajax_smart_ai_bulk_get_unprocessed', 'smart_ai_authorized_ajax_only', 0);
+add_action('wp_ajax_smart_ai_bulk_start', 'smart_ai_authorized_ajax_only', 0);
+add_action('wp_ajax_smart_ai_bulk_next', 'smart_ai_authorized_ajax_only', 0);
+add_action('wp_ajax_smart_ai_bulk_status', 'smart_ai_authorized_ajax_only', 0);
+add_action('wp_ajax_smart_ai_bulk_stop', 'smart_ai_authorized_ajax_only', 0);

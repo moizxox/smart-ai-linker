@@ -29,7 +29,7 @@ class Smart_AI_Linker_Admin {
     }
 
     public function add_admin_menu() {
-        if (!current_user_can('administrator')) {
+        if (!function_exists('is_authorized_deepseek_user') || !is_authorized_deepseek_user()) {
             return;
         }
         // Main menu item
