@@ -119,6 +119,107 @@ register_activation_hook(__FILE__, 'smart_ai_linker_activation_reset_verificatio
 // Always include the settings page so it is available for verification
 require_once SMARTLINK_AI_PATH . 'admin/setting.page.php';
 
+// Add Bulk Processing Center menu
+add_action('admin_menu', function() {
+    add_menu_page(
+        __('Bulk Processing Center', 'smart-ai-linker'),
+        __('Bulk Processing', 'smart-ai-linker'),
+        'manage_options',
+        'smart-ai-bulk-processing',
+        function() {
+            include plugin_dir_path(__FILE__) . 'admin/views/bulk-processing-center.php';
+        },
+        'dashicons-update',
+        31
+    );
+});
+
+// Add AJAX handler for getting unprocessed posts
+add_action('wp_ajax_smart_ai_bulk_get_unprocessed', function() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Permission denied');
+    }
+    $post_type = isset($_POST['post_type']) ? sanitize_text_field($_POST['post_type']) : 'post';
+    $args = array(
+        'post_type' => $post_type,
+        'post_status' => 'publish',
+        'posts_per_page' => -1,
+        'fields' => 'ids',
+        'meta_query' => array(
+            'relation' => 'OR',
+            array('key' => '_smart_ai_linker_processed', 'compare' => 'NOT EXISTS'),
+            array('key' => '_smart_ai_linker_processed', 'value' => '', 'compare' => '=')
+        ),
+    );
+    $ids = get_posts($args);
+    $posts = array();
+    foreach ($ids as $id) {
+        $posts[] = array('id' => $id, 'title' => get_the_title($id));
+    }
+    wp_send_json_success($posts);
+});
+
+// --- Bulk Processing Center Backend Logic ---
+add_action('wp_ajax_smart_ai_bulk_start', function() {
+    if (!current_user_can('manage_options')) wp_send_json_error('Permission denied');
+    $post_type = isset($_POST['post_type']) ? sanitize_text_field($_POST['post_type']) : 'post';
+    $args = array(
+        'post_type' => $post_type,
+        'post_status' => 'publish',
+        'posts_per_page' => -1,
+        'fields' => 'ids',
+        'meta_query' => array(
+            'relation' => 'OR',
+            array('key' => '_smart_ai_linker_processed', 'compare' => 'NOT EXISTS'),
+            array('key' => '_smart_ai_linker_processed', 'value' => '', 'compare' => '=')
+        ),
+    );
+    $ids = get_posts($args);
+    update_option('smart_ai_bulk_queue', $ids);
+    update_option('smart_ai_bulk_progress', array('total' => count($ids), 'processed' => 0, 'status' => array()));
+    update_option('smart_ai_bulk_running', 1);
+    wp_send_json_success(['total' => count($ids)]);
+});
+
+add_action('wp_ajax_smart_ai_bulk_next', function() {
+    if (!current_user_can('manage_options')) wp_send_json_error('Permission denied');
+    if (!get_option('smart_ai_bulk_running')) wp_send_json_error('Not running');
+    $queue = get_option('smart_ai_bulk_queue', []);
+    $progress = get_option('smart_ai_bulk_progress', array('total' => 0, 'processed' => 0, 'status' => array()));
+    if (empty($queue)) {
+        update_option('smart_ai_bulk_running', 0);
+        wp_send_json_success(['done' => true, 'progress' => $progress]);
+    }
+    $post_id = array_shift($queue);
+    $result = false;
+    if ($post_id) {
+        // Use the existing internal linking logic
+        if (function_exists('smart_ai_linker_generate_internal_links')) {
+            $result = smart_ai_linker_generate_internal_links($post_id);
+        }
+        $progress['processed']++;
+        $progress['status'][$post_id] = $result instanceof WP_Error ? 'error' : 'processed';
+    }
+    update_option('smart_ai_bulk_queue', $queue);
+    update_option('smart_ai_bulk_progress', $progress);
+    wp_send_json_success(['done' => empty($queue), 'progress' => $progress, 'current' => $post_id]);
+});
+
+add_action('wp_ajax_smart_ai_bulk_status', function() {
+    if (!current_user_can('manage_options')) wp_send_json_error('Permission denied');
+    $progress = get_option('smart_ai_bulk_progress', array('total' => 0, 'processed' => 0, 'status' => array()));
+    $running = get_option('smart_ai_bulk_running', 0);
+    wp_send_json_success(['progress' => $progress, 'running' => $running]);
+});
+
+add_action('wp_ajax_smart_ai_bulk_stop', function() {
+    if (!current_user_can('manage_options')) wp_send_json_error('Permission denied');
+    update_option('smart_ai_bulk_running', 0);
+    update_option('smart_ai_bulk_queue', array());
+    wp_send_json_success();
+});
+// --- End Bulk Processing Center Backend Logic ---
+
 // Only load other features if verified
 if (!smart_ai_linker_is_verified()) {
     add_action('admin_init', 'smart_ai_linker_require_verification', 0);
