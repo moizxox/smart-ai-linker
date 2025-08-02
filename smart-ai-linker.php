@@ -119,21 +119,6 @@ register_activation_hook(__FILE__, 'smart_ai_linker_activation_reset_verificatio
 // Always include the settings page so it is available for verification
 require_once SMARTLINK_AI_PATH . 'admin/setting.page.php';
 
-// Add Bulk Processing Center menu
-add_action('admin_menu', function() {
-    add_menu_page(
-        __('Bulk Processing Center', 'smart-ai-linker'),
-        __('Internal Linking - Bulk Processing', 'smart-ai-linker'),
-        'manage_options',
-        'smart-ai-bulk-processing',
-        function() {
-            include plugin_dir_path(__FILE__) . 'admin/views/bulk-processing-center.php';
-        },
-        'dashicons-update',
-        31
-    );
-});
-
 // Add AJAX handler for getting unprocessed posts
 add_action('wp_ajax_smart_ai_bulk_get_unprocessed', function() {
     if (!current_user_can('manage_options')) {
@@ -297,7 +282,7 @@ add_action('admin_menu', function() {
     if (!is_authorized_deepseek_user()) return;
     add_menu_page(
         __('Bulk Processing Center', 'smart-ai-linker'),
-        __('Bulk Processing', 'smart-ai-linker'),
+        __('Internal Linking Bulk Process', 'smart-ai-linker'),
         'manage_options',
         'smart-ai-bulk-processing',
         function() {
