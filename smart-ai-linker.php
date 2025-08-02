@@ -123,7 +123,7 @@ require_once SMARTLINK_AI_PATH . 'admin/setting.page.php';
 add_action('admin_menu', function() {
     add_menu_page(
         __('Bulk Processing Center', 'smart-ai-linker'),
-        __('Internal Linking - Smart Bulk Processing', 'smart-ai-linker'),
+        __('Internal Linking - Bulk Processing', 'smart-ai-linker'),
         'manage_options',
         'smart-ai-bulk-processing',
         function() {
