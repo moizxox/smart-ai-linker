@@ -101,7 +101,7 @@ function smart_ai_linker_bulk_action_handler($redirect_to, $doaction, $post_ids)
         
         if ($result) {
             update_post_meta($post_id, '_smart_ai_linker_processed', current_time('mysql'));
-            update_post_meta($post_id, '_smart_ai_linker_added_links', $suggestions);
+            update_post_meta($post_id, '_smart_ai_linker_added_links', count($suggestions));
             $processed++;
         } else {
             $skipped++;
@@ -248,7 +248,7 @@ function smart_ai_linker_process_all_ajax() {
         
         if ($result) {
             update_post_meta($post_id, '_smart_ai_linker_processed', current_time('mysql'));
-            update_post_meta($post_id, '_smart_ai_linker_added_links', $suggestions);
+            update_post_meta($post_id, '_smart_ai_linker_added_links', count($suggestions));
             $processed++;
         } else {
             $errors[] = sprintf(__('Failed to process post #%d', 'smart-ai-linker'), $post_id);
@@ -326,7 +326,7 @@ add_action('wp_ajax_smart_ai_linker_process_next', function() {
             $suggestions = array_slice($suggestions, 0, $max_links);
             smart_ai_linker_insert_links_into_post($post_id, $suggestions);
             update_post_meta($post_id, '_smart_ai_linker_processed', current_time('mysql'));
-            update_post_meta($post_id, '_smart_ai_linker_added_links', $suggestions);
+            update_post_meta($post_id, '_smart_ai_linker_added_links', count($suggestions));
         }
         $progress['processed']++;
         update_option('smart_ai_linker_bulk_queue', $queue);

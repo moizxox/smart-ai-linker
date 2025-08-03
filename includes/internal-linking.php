@@ -231,7 +231,9 @@ function smart_ai_linker_generate_internal_links($post_ID, $post = null, $update
     
     // Mark post as processed and store the links
     $result1 = update_post_meta($post_ID, '_smart_ai_linker_processed', current_time('mysql'));
-    $result2 = update_post_meta($post_ID, '_smart_ai_linker_added_links', $suggestions);
+    // Store the actual inserted links count, not the suggestions
+    $inserted_links_count = is_array($formatted_suggestions) ? count($formatted_suggestions) : 0;
+    $result2 = update_post_meta($post_ID, '_smart_ai_linker_added_links', $inserted_links_count);
     
     if ($result1 === false || $result2 === false) {
         $error_message = 'Failed to update post meta for post ' . $post_ID;
@@ -450,14 +452,14 @@ add_filter('manage_page_posts_columns', function($columns) {
 });
 add_action('manage_post_posts_custom_column', function($column, $post_id) {
     if ($column === 'smart_ai_links') {
-        $links = get_post_meta($post_id, '_smart_ai_linker_added_links', true);
-        echo is_array($links) ? count($links) : 0;
+        $links_count = get_post_meta($post_id, '_smart_ai_linker_added_links', true);
+        echo is_numeric($links_count) ? $links_count : 0;
     }
 }, 10, 2);
 add_action('manage_page_posts_custom_column', function($column, $post_id) {
     if ($column === 'smart_ai_links') {
-        $links = get_post_meta($post_id, '_smart_ai_linker_added_links', true);
-        echo is_array($links) ? count($links) : 0;
+        $links_count = get_post_meta($post_id, '_smart_ai_linker_added_links', true);
+        echo is_numeric($links_count) ? $links_count : 0;
     }
 }, 10, 2);
 // --- End Admin column: AI Links count ---
@@ -497,8 +499,8 @@ add_action('manage_page_posts_custom_column', function($column, $post_id) {
 add_action('add_meta_boxes', function() {
     foreach (array('post','page') as $type) {
         add_meta_box('smart_ai_linker_progress', __('AI Internal Links Progress', 'smart-ai-linker'), function($post) {
-            $links = get_post_meta($post->ID, '_smart_ai_linker_added_links', true);
-            $ai_count = is_array($links) ? count($links) : 0;
+            $links_count = get_post_meta($post->ID, '_smart_ai_linker_added_links', true);
+            $ai_count = is_numeric($links_count) ? $links_count : 0;
             $max_links = (int) get_option('smart_ai_linker_max_links', 7);
             $max_links = $max_links > 0 ? min(7, $max_links) : 7;
             // Count manual internal links
