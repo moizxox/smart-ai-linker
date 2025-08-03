@@ -45,11 +45,13 @@ class Smart_AI_Linker_Silo_Structure {
             'query_var'         => true,
             'rewrite'           => ['slug' => 'silo-group'],
             'show_in_rest'      => true,
-            'public'            => false,
+            'public'            => true,
             'show_in_menu'      => true,
         ];
 
-        register_taxonomy('silo_group', ['post'], $args);
+        // Get all public post types
+        $post_types = get_post_types(['public' => true]);
+        register_taxonomy('silo_group', array_values($post_types), $args);
     }
 
     /**
@@ -60,7 +62,7 @@ class Smart_AI_Linker_Silo_Structure {
             'silo_settings',
             __('Silo Linking Settings', 'smart-ai-linker'),
             [__CLASS__, 'render_silo_meta_box'],
-            'post',
+            get_post_types(['public' => true]),
             'side',
             'default'
         );
@@ -195,4 +197,5 @@ class Smart_AI_Linker_Silo_Structure {
 }
 
 // Initialize the silo structure functionality
-add_action('plugins_loaded', ['Smart_AI_Linker_Silo_Structure', 'init']);
+// Initialize immediately since we're already in plugins_loaded
+Smart_AI_Linker_Silo_Structure::init();
