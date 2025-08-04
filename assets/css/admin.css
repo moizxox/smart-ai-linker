@@ -55,6 +55,44 @@
     letter-spacing: 0.5px;
 }
 
+/* Link count styling */
+.links-count {
+    background: #46b450;
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.no-links {
+    background: #aaa;
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.post-type-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.post-type-post {
+    background: #0073aa;
+    color: #fff;
+}
+
+.post-type-page {
+    background: #46b450;
+    color: #fff;
+}
+
 .quick-actions {
     display: flex;
     gap: 10px;

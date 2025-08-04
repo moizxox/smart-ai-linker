@@ -42,6 +42,11 @@ function smart_ai_linker_meta_box_callback($post) {
     $suggestions = get_post_meta($post->ID, '_smart_ai_linker_suggestions', true);
     $added_links = get_post_meta($post->ID, '_smart_ai_linker_added_links', true);
     
+    // Ensure added_links is an array
+    if (!is_array($added_links)) {
+        $added_links = array();
+    }
+    
     ?>
     <div id="smart-ai-linker-meta-box">
         <?php if ($processed) : ?>
@@ -238,13 +243,15 @@ function smart_ai_linker_ajax_generate_links() {
     $result = smart_ai_linker_insert_links_into_post($post_id, $suggestions);
     
     if ($result) {
-        // Mark as processed and store the actual inserted links
+        // Mark as processed (links are already stored by insert_links_into_post function)
         update_post_meta($post_id, '_smart_ai_linker_processed', current_time('mysql'));
-        update_post_meta($post_id, '_smart_ai_linker_added_links', $suggestions);
+        
+        // Get the actual inserted links count from content
+        $count = smart_ai_linker_count_actual_links($post_id);
         
         wp_send_json_success(array(
             'message' => 'Links generated successfully',
-            'count' => count($suggestions)
+            'count' => $count
         ));
     } else {
         wp_send_json_error('Failed to insert links into the post');

@@ -9,16 +9,16 @@
         $password = sanitize_text_field($_POST['unlock_password']);
         
         if ($password === 'tamir@gmail.com') {
-            update_option('smart_ai_linker_unlocked', '1');
-            echo '<div class="notice notice-success is-dismissible"><p><strong>Success!</strong> Plugin has been unlocked. You can now access all features.</p></div>';
+            update_option('smart_ai_linker_verified', '1');
+            echo '<div class="notice notice-success is-dismissible"><p><strong>Success!</strong> Plugin has been verified. You can now access all features.</p></div>';
             echo '<script>setTimeout(function(){ window.location.href = "' . admin_url('admin.php?page=smart-ai-linker') . '"; }, 2000);</script>';
         } else {
             echo '<div class="notice notice-error is-dismissible"><p><strong>Error!</strong> Incorrect password. Please try again.</p></div>';
         }
     }
     
-    // Check if already unlocked
-    if (get_option('smart_ai_linker_unlocked', '0') === '1') {
+    // Check if already verified
+    if (get_option('smart_ai_linker_verified', '0') === '1') {
         echo '<div class="notice notice-info is-dismissible"><p><strong>Plugin is already unlocked!</strong> You can access all features.</p></div>';
         echo '<p><a href="' . admin_url('admin.php?page=smart-ai-linker') . '" class="button button-primary">Go to Plugin Dashboard</a></p>';
         return;

@@ -49,6 +49,14 @@ function smart_ai_linker_bulk_action_handler($redirect_to, $doaction, $post_ids)
             continue;
         }
 
+        // Check if this post is excluded from internal linking
+        $excluded_posts = get_option('smart_ai_linker_excluded_posts', array());
+        if (in_array($post_id, (array) $excluded_posts)) {
+            $skipped++;
+            $skipped_details[] = sprintf('Post ID %d skipped: excluded from internal linking', $post_id);
+            continue;
+        }
+
         // Get clean content for AI processing
         $clean_content = wp_strip_all_tags(strip_shortcodes($post->post_content));
         
@@ -101,7 +109,7 @@ function smart_ai_linker_bulk_action_handler($redirect_to, $doaction, $post_ids)
         
         if ($result) {
             update_post_meta($post_id, '_smart_ai_linker_processed', current_time('mysql'));
-            update_post_meta($post_id, '_smart_ai_linker_added_links', count($suggestions));
+            update_post_meta($post_id, '_smart_ai_linker_added_links', $suggestions);
             $processed++;
         } else {
             $skipped++;
@@ -220,6 +228,12 @@ function smart_ai_linker_process_all_ajax() {
         if (!$post) {
             continue;
         }
+
+        // Check if this post is excluded from internal linking
+        $excluded_posts = get_option('smart_ai_linker_excluded_posts', array());
+        if (in_array($post_id, (array) $excluded_posts)) {
+            continue;
+        }
         
         // Get clean content for AI processing
         $clean_content = wp_strip_all_tags(strip_shortcodes($post->post_content));
@@ -248,7 +262,7 @@ function smart_ai_linker_process_all_ajax() {
         
         if ($result) {
             update_post_meta($post_id, '_smart_ai_linker_processed', current_time('mysql'));
-            update_post_meta($post_id, '_smart_ai_linker_added_links', count($suggestions));
+            update_post_meta($post_id, '_smart_ai_linker_added_links', $suggestions);
             $processed++;
         } else {
             $errors[] = sprintf(__('Failed to process post #%d', 'smart-ai-linker'), $post_id);
@@ -305,6 +319,15 @@ add_action('wp_ajax_smart_ai_linker_process_next', function() {
     if ($post_id) {
         $post = get_post($post_id);
         if ($post && $post->post_status === 'publish') {
+            // Check if this post is excluded from internal linking
+            $excluded_posts = get_option('smart_ai_linker_excluded_posts', array());
+            if (in_array($post_id, (array) $excluded_posts)) {
+                $progress['processed']++;
+                update_option('smart_ai_linker_bulk_queue', $queue);
+                update_option('smart_ai_linker_bulk_progress', $progress);
+                wp_send_json_success(array('done' => false, 'progress' => $progress));
+                return;
+            }
             $clean_content = wp_strip_all_tags(strip_shortcodes($post->post_content));
             $silo_post_ids = [];
             if (class_exists('Smart_AI_Linker_Silos')) {
@@ -326,7 +349,7 @@ add_action('wp_ajax_smart_ai_linker_process_next', function() {
             $suggestions = array_slice($suggestions, 0, $max_links);
             smart_ai_linker_insert_links_into_post($post_id, $suggestions);
             update_post_meta($post_id, '_smart_ai_linker_processed', current_time('mysql'));
-            update_post_meta($post_id, '_smart_ai_linker_added_links', count($suggestions));
+            update_post_meta($post_id, '_smart_ai_linker_added_links', $suggestions);
         }
         $progress['processed']++;
         update_option('smart_ai_linker_bulk_queue', $queue);

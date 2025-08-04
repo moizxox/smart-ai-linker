@@ -63,24 +63,15 @@ function smart_ai_linker_generate_internal_links($post_ID, $post = null, $update
     }
     error_log('[Smart AI] Post type is enabled for linking');
 
-    // Get the post content and clean it up for processing
-    $content = $post->post_content;
-    
-    // First, decode HTML entities and clean up content
-    if (function_exists('wp_strip_all_tags')) {
-        $content = wp_strip_all_tags($content, true);
-    } else {
-        $content = strip_tags($content);
+    // Check if this post is excluded from internal linking
+    $excluded_posts = get_option('smart_ai_linker_excluded_posts', array());
+    if (in_array($post_ID, (array) $excluded_posts)) {
+        error_log('[Smart AI] Post ' . $post_ID . ' is excluded from internal linking');
+        return $post_ID;
     }
-    
-    // Normalize whitespace - replace multiple spaces/tabs with single space
-    $content = preg_replace('/\s+/', ' ', $content);
-    
-    // Remove any existing smart-ai-link spans to prevent duplicates
-    $content = preg_replace('/<a\s+[^>]*class=["\']smart-ai-link["\'][^>]*>.*?<\/a>/i', '', $content);
-    
-    // Clean up any leftover HTML tags or attributes that might cause issues
-    $content = wp_kses_post($content);
+
+    // Get the post content
+    $content = $post->post_content;
     
     if (empty($content)) {
         error_log('[Smart AI] Empty post content, skipping');
@@ -93,8 +84,7 @@ function smart_ai_linker_generate_internal_links($post_ID, $post = null, $update
         $content = (string) $content;
     }
     
-    
-    // Strip shortcodes and tags for the AI analysis
+    // Strip shortcodes and tags for the AI analysis only
     $clean_content = wp_strip_all_tags(strip_shortcodes($content));
     
     if (empty($clean_content)) {
@@ -110,6 +100,12 @@ function smart_ai_linker_generate_internal_links($post_ID, $post = null, $update
     
     // Get the post type for context
     $post_type = $post->post_type;
+    
+    // Check if AI function exists
+    if (!function_exists('smart_ai_linker_get_ai_link_suggestions')) {
+        error_log('[Smart AI] AI function not found, including API client');
+        require_once SMARTLINK_AI_PATH . 'api/deepseek-client.php';
+    }
     if (empty($content_for_analysis)) {
         error_log('[Smart AI] No valid content available for analysis');
         return $post_ID;
@@ -136,6 +132,7 @@ function smart_ai_linker_generate_internal_links($post_ID, $post = null, $update
     // --- End Silo Linking Priority ---
 
     // Pass silo_post_ids to the AI suggestion function
+    error_log('[Smart AI] Calling AI function with content length: ' . strlen($content_for_analysis));
     $suggestions = smart_ai_linker_get_ai_link_suggestions($content_for_analysis, $post_ID, $post_type, $silo_post_ids);
     
     if (is_wp_error($suggestions)) {
@@ -145,9 +142,11 @@ function smart_ai_linker_generate_internal_links($post_ID, $post = null, $update
     
     // Ensure suggestions is an array
     if (!is_array($suggestions)) {
-        error_log('[Smart AI] Invalid suggestions format, expected array');
+        error_log('[Smart AI] Invalid suggestions format, expected array, got: ' . gettype($suggestions));
         return $post_ID;
     }
+    
+    error_log('[Smart AI] Received ' . count($suggestions) . ' suggestions from AI');
 
 
     if (empty($suggestions)) {
@@ -231,9 +230,8 @@ function smart_ai_linker_generate_internal_links($post_ID, $post = null, $update
     
     // Mark post as processed and store the links
     $result1 = update_post_meta($post_ID, '_smart_ai_linker_processed', current_time('mysql'));
-    // Store the actual inserted links count, not the suggestions
-    $inserted_links_count = is_array($formatted_suggestions) ? count($formatted_suggestions) : 0;
-    $result2 = update_post_meta($post_ID, '_smart_ai_linker_added_links', $inserted_links_count);
+    // Store the actual inserted links as an array
+    $result2 = update_post_meta($post_ID, '_smart_ai_linker_added_links', $formatted_suggestions);
     
     if ($result1 === false || $result2 === false) {
         $error_message = 'Failed to update post meta for post ' . $post_ID;
@@ -275,10 +273,20 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
         return false;
     }
 
-    // Split content into paragraphs for better distribution
-    $paragraphs = preg_split('/(<\/p>)/i', $content, -1, PREG_SPLIT_DELIM_CAPTURE);
-    $paragraphs = array_map('trim', $paragraphs);
-    $paragraphs = array_values(array_filter($paragraphs, function($p) { return $p !== ''; }));
+    // Use DOMDocument for safer HTML manipulation
+    libxml_use_internal_errors(true);
+    $dom = new DOMDocument();
+    $encoding = '<?xml encoding="utf-8" ?>';
+    
+    // Wrap content in a div and handle potential HTML issues
+    $wrapped_content = '<div>' . $content . '</div>';
+    
+    // Load HTML with error suppression
+    $dom->loadHTML($encoding . $wrapped_content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+    $xpath = new DOMXPath($dom);
+    
+    // Clear any libxml errors
+    libxml_clear_errors();
 
     $used_anchors = [];
     $used_urls = [];
@@ -287,21 +295,13 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
     $option_max = $option_max > 0 ? min(7, $option_max) : 7;
     $max_links = $option_max;
 
-    // Distribute links: intro, middle, end
-    $num_paragraphs = count($paragraphs);
-    $target_indices = [];
-    if ($num_paragraphs >= 3) {
-        $target_indices = [0, intval($num_paragraphs/2), $num_paragraphs-1];
-    } else {
-        $target_indices = range(0, $num_paragraphs-1);
-    }
-    $link_idx = 0;
     $inserted_links = [];
     foreach ($links as $link) {
         if ($links_added >= $max_links) break;
         $anchor = is_array($link) ? ($link['anchor'] ?? '') : ($link->anchor ?? '');
         $url = is_array($link) ? ($link['url'] ?? '') : ($link->url ?? '');
         if (empty($anchor) || empty($url)) continue;
+        
         // If the source is a PAGE, do not link to posts
         if ($source_type === 'page') {
             $target_post_id = url_to_postid($url);
@@ -309,34 +309,105 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
                 continue; // skip – violates page→post rule
             }
         }
+        
         if (in_array($anchor, $used_anchors, true) || in_array($url, $used_urls, true)) continue;
-        // Try to insert in target paragraphs first
-        $inserted = false;
-        foreach ($target_indices as $idx) {
-            if (stripos($paragraphs[$idx], $anchor) !== false && stripos($paragraphs[$idx], '<a ') === false) {
-                $paragraphs[$idx] = preg_replace('/' . preg_quote($anchor, '/') . '/i', '<a href="' . esc_url($url) . '" class="smart-ai-link" title="' . esc_attr($anchor) . '">' . esc_html($anchor) . '</a>', $paragraphs[$idx], 1);
-                $inserted = true;
-                break;
+        
+        // Only select text nodes NOT inside <a>, <h1>, or <h2>
+        $text_nodes = [];
+        $xpath_query = '//text()[not(ancestor::a) and not(ancestor::h1) and not(ancestor::h2)]';
+        foreach ($xpath->query($xpath_query) as $node) {
+            $text_nodes[] = $node;
+        }
+        
+        // Fallback: if no nodes found, use all text nodes not in <a>
+        if (empty($text_nodes)) {
+            foreach ($xpath->query('//text()[not(ancestor::a)]') as $node) {
+                $text_nodes[] = $node;
             }
         }
-        // If not inserted, try all paragraphs
-        if (!$inserted) {
-            foreach ($paragraphs as $idx => $para) {
-                if (stripos($para, $anchor) !== false && stripos($para, '<a ') === false) {
-                    $paragraphs[$idx] = preg_replace('/' . preg_quote($anchor, '/') . '/i', '<a href="' . esc_url($url) . '" class="smart-ai-link" title="' . esc_attr($anchor) . '">' . esc_html($anchor) . '</a>', $para, 1);
+        
+        $inserted = false;
+        // Try exact match first
+        foreach ($text_nodes as $text_node) {
+            $text = $text_node->nodeValue;
+            $pos = mb_stripos($text, $anchor);
+            if ($pos !== false) {
+                $before = mb_substr($text, 0, $pos);
+                $match = mb_substr($text, $pos, mb_strlen($anchor));
+                $after = mb_substr($text, $pos + mb_strlen($anchor));
+                
+                $a = $dom->createElement('a', htmlspecialchars($match, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+                $a->setAttribute('href', esc_url($url));
+                $a->setAttribute('class', 'smart-ai-link');
+                $a->setAttribute('title', esc_attr($anchor));
+                
+                $parent = $text_node->parentNode;
+                if ($parent !== null) {
+                    if ($before !== '') $parent->insertBefore($dom->createTextNode($before), $text_node);
+                    $parent->insertBefore($a, $text_node);
+                    if ($after !== '') $parent->insertBefore($dom->createTextNode($after), $text_node);
+                    $parent->removeChild($text_node);
+                    
+                    $used_anchors[] = $anchor;
+                    $used_urls[] = $url;
+                    $links_added++;
+                    $inserted_links[] = is_array($link) ? $link : [ 'anchor' => $anchor, 'url' => $url ];
                     $inserted = true;
                     break;
                 }
             }
         }
-        if ($inserted) {
-            $used_anchors[] = $anchor;
-            $used_urls[] = $url;
-            $links_added++;
-            $inserted_links[] = is_array($link) ? $link : [ 'anchor' => $anchor, 'url' => $url ];
+        
+        // If not inserted, try partial match
+        if (!$inserted) {
+            $anchor_words = preg_split('/\s+/', $anchor);
+            $partial = implode(' ', array_slice($anchor_words, 0, min(3, count($anchor_words))));
+            
+            foreach ($text_nodes as $text_node) {
+                $text = preg_replace('/\s+/', ' ', $text_node->nodeValue);
+                $pos = mb_stripos($text, $partial);
+                if ($pos !== false) {
+                    $before = mb_substr($text, 0, $pos);
+                    $match = mb_substr($text, $pos, mb_strlen($partial));
+                    $after = mb_substr($text, $pos + mb_strlen($partial));
+                    
+                    $a = $dom->createElement('a', htmlspecialchars($match, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+                    $a->setAttribute('href', esc_url($url));
+                    $a->setAttribute('class', 'smart-ai-link');
+                    $a->setAttribute('title', esc_attr($anchor));
+                    
+                    $parent = $text_node->parentNode;
+                    if ($parent !== null) {
+                        if ($before !== '') $parent->insertBefore($dom->createTextNode($before), $text_node);
+                        $parent->insertBefore($a, $text_node);
+                        if ($after !== '') $parent->insertBefore($dom->createTextNode($after), $text_node);
+                        $parent->removeChild($text_node);
+                        
+                        $used_anchors[] = $anchor;
+                        $used_urls[] = $url;
+                        $links_added++;
+                        $inserted_links[] = is_array($link) ? $link : [ 'anchor' => $anchor, 'url' => $url ];
+                        $inserted = true;
+                        break;
+                    }
+                }
+            }
         }
     }
-    $new_content = implode('', $paragraphs);
+    
+    // Extract the modified content
+    $new_content = '';
+    $div_element = $dom->getElementsByTagName('div')->item(0);
+    if ($div_element) {
+        foreach ($div_element->childNodes as $child) {
+            $new_content .= $dom->saveHTML($child);
+        }
+    } else {
+        // Fallback if div element is not found
+        $new_content = $content;
+    }
+    libxml_clear_errors();
+    
     if ($new_content && $new_content !== $content) {
         // Deduplicate links: keep only the first occurrence of each URL
         $seen_urls = [];
@@ -350,6 +421,7 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
                 return $anchor; // remove link, keep anchor text
             }
         }, $new_content);
+        
         global $wpdb;
         $result = $wpdb->update(
             $wpdb->posts,
@@ -452,14 +524,12 @@ add_filter('manage_page_posts_columns', function($columns) {
 });
 add_action('manage_post_posts_custom_column', function($column, $post_id) {
     if ($column === 'smart_ai_links') {
-        $links_count = get_post_meta($post_id, '_smart_ai_linker_added_links', true);
-        echo is_numeric($links_count) ? $links_count : 0;
+        echo smart_ai_linker_count_actual_links($post_id);
     }
 }, 10, 2);
 add_action('manage_page_posts_custom_column', function($column, $post_id) {
     if ($column === 'smart_ai_links') {
-        $links_count = get_post_meta($post_id, '_smart_ai_linker_added_links', true);
-        echo is_numeric($links_count) ? $links_count : 0;
+        echo smart_ai_linker_count_actual_links($post_id);
     }
 }, 10, 2);
 // --- End Admin column: AI Links count ---
@@ -499,16 +569,17 @@ add_action('manage_page_posts_custom_column', function($column, $post_id) {
 add_action('add_meta_boxes', function() {
     foreach (array('post','page') as $type) {
         add_meta_box('smart_ai_linker_progress', __('AI Internal Links Progress', 'smart-ai-linker'), function($post) {
-            $links_count = get_post_meta($post->ID, '_smart_ai_linker_added_links', true);
-            $ai_count = is_numeric($links_count) ? $links_count : 0;
+            $ai_count = smart_ai_linker_count_actual_links($post->ID);
             $max_links = (int) get_option('smart_ai_linker_max_links', 7);
             $max_links = $max_links > 0 ? min(7, $max_links) : 7;
-            // Count manual internal links
+            // Count manual internal links (excluding smart-ai-link class)
             $content = $post->post_content;
             $manual_count = 0;
             if ($content) {
-                $manual_count = preg_match_all('/<a\s+[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)<\/a>/i', $content, $matches);
-                if ($ai_count > 0) $manual_count -= $ai_count; // crude estimate
+                // Count all links except smart-ai-link ones
+                preg_match_all('/<a\s+[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)<\/a>/i', $content, $matches);
+                $total_links = count($matches[0]);
+                $manual_count = $total_links - $ai_count;
                 if ($manual_count < 0) $manual_count = 0;
             }
             $total = $ai_count + $manual_count;
@@ -529,6 +600,13 @@ add_filter('the_content', function($content) {
     global $post;
     if (!$post || !in_array($post->post_type, array('post','page'))) return $content;
     if (strpos($content, 'class="smart-ai-link"') !== false) return $content;
+    
+    // Check if this post is excluded from internal linking
+    $excluded_posts = get_option('smart_ai_linker_excluded_posts', array());
+    if (in_array($post->ID, (array) $excluded_posts)) {
+        return $content;
+    }
+    
     $clean_content = wp_strip_all_tags(strip_shortcodes($content));
     $word_count = str_word_count($clean_content);
     if ($word_count < 10) {
@@ -676,3 +754,23 @@ add_filter('the_content', function($content) {
     return $new_content;
 }, 999);
 // --- end the_content filter ---
+
+/**
+ * Count the actual number of smart-ai-link tags in post content
+ * This provides the most accurate count of links that are actually present
+ * 
+ * @param int $post_id The post ID
+ * @return int Number of smart-ai-link tags found
+ */
+function smart_ai_linker_count_actual_links($post_id) {
+    $post = get_post($post_id);
+    if (!$post || empty($post->post_content)) {
+        return 0;
+    }
+    
+    // Count <a class="smart-ai-link"> tags in content
+    preg_match_all('/<a\s+[^>]*class=["\']smart-ai-link["\'][^>]*>/i', $post->post_content, $matches);
+    return count($matches[0]);
+}
+
+

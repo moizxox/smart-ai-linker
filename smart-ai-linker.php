@@ -19,6 +19,35 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// Reset verification on activation - must be outside plugins_loaded
+function smart_ai_linker_activation_reset_verification() {
+    update_option('smart_ai_linker_verified', '0');
+}
+register_activation_hook(__FILE__, 'smart_ai_linker_activation_reset_verification');
+
+// Plugin activation hook - must be outside plugins_loaded
+function smart_ai_linker_activate() {
+    // Set default options if they don't exist
+    if (false === get_option('smart_ai_linker_enable_auto_linking')) {
+        update_option('smart_ai_linker_enable_auto_linking', '1');
+    }
+
+    if (false === get_option('smart_ai_linker_max_links')) {
+        update_option('smart_ai_linker_max_links', '7');
+    }
+
+    if (false === get_option('smart_ai_linker_post_types')) {
+        update_option('smart_ai_linker_post_types', array('post'));
+    }
+}
+register_activation_hook(__FILE__, 'smart_ai_linker_activate');
+
+// Plugin deactivation hook - must be outside plugins_loaded
+function smart_ai_linker_deactivate() {
+    // Clean up any temporary data if needed
+}
+register_deactivation_hook(__FILE__, 'smart_ai_linker_deactivate');
+
 add_action('plugins_loaded', function () {
     
     // Define plugin constants
@@ -36,14 +65,14 @@ add_action('plugins_loaded', function () {
         return $current_user->user_email === 'tamirperl@gmail.com';
     }
 
-    // Function to check if plugin is unlocked with password
-    function smart_ai_linker_is_unlocked() {
-        return get_option('smart_ai_linker_unlocked', '0') === '1';
+    // Function to check if plugin is verified with password
+    function smart_ai_linker_is_verified() {
+        return get_option('smart_ai_linker_verified', '0') === '1';
     }
 
     // Function to check if user can access plugin
     function smart_ai_linker_can_access() {
-        return is_authorized_deepseek_user() && smart_ai_linker_is_unlocked();
+        return is_authorized_deepseek_user() && smart_ai_linker_is_verified();
     }
 
     // Block all plugin functionality for unauthorized users
@@ -177,10 +206,7 @@ add_action('plugins_loaded', function () {
         }, 11);  // Higher priority to ensure main menu is processed first
     }
 
-    // Add plugin verification logic
-    function smart_ai_linker_is_verified() {
-        return get_option('smart_ai_linker_verified', '0') === '1';
-    }
+
 
     function smart_ai_linker_require_verification() {
         // Only allow access to the settings page for verification
@@ -197,12 +223,7 @@ add_action('plugins_loaded', function () {
         // Optionally, block plugin-specific actions here
     }
 
-    // Reset verification on activation
-    function smart_ai_linker_activation_reset_verification() {
-        update_option('smart_ai_linker_verified', '0');
-        update_option('smart_ai_linker_unlocked', '0');
-    }
-    register_activation_hook(__FILE__, 'smart_ai_linker_activation_reset_verification');
+
 
     // Always include the settings page so it is available for verification
     require_once SMARTLINK_AI_PATH . 'admin/setting.page.php';
@@ -280,6 +301,17 @@ add_action('plugins_loaded', function () {
                     wp_send_json_success(['done' => empty($queue), 'progress' => $progress, 'current' => $post_id]);
                     return;
                 }
+
+                // Check if this post is excluded from internal linking
+                $excluded_posts = get_option('smart_ai_linker_excluded_posts', array());
+                if (in_array($post_id, (array) $excluded_posts)) {
+                    $progress['processed']++;
+                    $progress['status'][$post_id] = 'skipped';
+                    update_option('smart_ai_bulk_queue', $queue);
+                    update_option('smart_ai_bulk_progress', $progress);
+                    wp_send_json_success(['done' => empty($queue), 'progress' => $progress, 'current' => $post_id]);
+                    return;
+                }
                 
                 // Get AI suggestions
                 if (function_exists('smart_ai_linker_get_ai_link_suggestions')) {
@@ -295,9 +327,9 @@ add_action('plugins_loaded', function () {
                         if (function_exists('smart_ai_linker_insert_links_into_post')) {
                             $result = smart_ai_linker_insert_links_into_post($post_id, $suggestions);
                             if ($result) {
-                                update_post_meta($post_id, '_smart_ai_linker_processed', current_time('mysql'));
-                                update_post_meta($post_id, '_smart_ai_linker_added_links', count($suggestions));
-                                $progress['status'][$post_id] = 'processed';
+                                                            update_post_meta($post_id, '_smart_ai_linker_processed', current_time('mysql'));
+                            update_post_meta($post_id, '_smart_ai_linker_added_links', $suggestions);
+                            $progress['status'][$post_id] = 'processed';
                             } else {
                                 $progress['status'][$post_id] = 'error';
                             }
@@ -366,36 +398,7 @@ add_action('plugins_loaded', function () {
 
         add_action('plugins_loaded', 'smart_ai_linker_load_textdomain');
 
-        /**
-         * Plugin activation hook
-         */
-        function smart_ai_linker_activate()
-        {
-            // Set default options if they don't exist
-            if (false === get_option('smart_ai_linker_enable_auto_linking')) {
-                update_option('smart_ai_linker_enable_auto_linking', '1');
-            }
 
-            if (false === get_option('smart_ai_linker_max_links')) {
-                update_option('smart_ai_linker_max_links', '7');
-            }
-
-            if (false === get_option('smart_ai_linker_post_types')) {
-                update_option('smart_ai_linker_post_types', array('post'));
-            }
-        }
-
-        register_activation_hook(__FILE__, 'smart_ai_linker_activate');
-
-        /**
-         * Plugin deactivation hook
-         */
-        function smart_ai_linker_deactivate()
-        {
-            // Clean up any temporary data if needed
-        }
-
-        register_deactivation_hook(__FILE__, 'smart_ai_linker_deactivate');
     }
 
     // Add bulk processing menu for authorized users only

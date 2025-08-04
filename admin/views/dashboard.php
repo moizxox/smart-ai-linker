@@ -22,6 +22,25 @@
                 </div>
             </div>
         </div>
+
+        <!-- Link Statistics -->
+        <div class="dashboard-card">
+            <h2><?php _e('Internal Linking Stats', 'smart-ai-linker'); ?></h2>
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <span class="stat-number"><?php echo number_format($total_links); ?></span>
+                    <span class="stat-label"><?php _e('Total AI Links', 'smart-ai-linker'); ?></span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-number"><?php echo number_format($processed_posts); ?></span>
+                    <span class="stat-label"><?php _e('Processed Posts', 'smart-ai-linker'); ?></span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-number"><?php echo $processed_posts > 0 ? number_format($total_links / $processed_posts, 1) : '0'; ?></span>
+                    <span class="stat-label"><?php _e('Avg Links/Post', 'smart-ai-linker'); ?></span>
+                </div>
+            </div>
+        </div>
         
         <!-- Quick Actions -->
         <div class="dashboard-card">
@@ -46,9 +65,11 @@
                 <table class="wp-list-table widefat fixed striped">
                     <thead>
                         <tr>
-                            <th><?php _e('Post', 'smart-ai-linker'); ?></th>
+                            <th><?php _e('Post/Page', 'smart-ai-linker'); ?></th>
+                            <th><?php _e('Type', 'smart-ai-linker'); ?></th>
+                            <th><?php _e('AI Links', 'smart-ai-linker'); ?></th>
                             <th><?php _e('Silo', 'smart-ai-linker'); ?></th>
-                            <th><?php _e('Date', 'smart-ai-linker'); ?></th>
+                            <th><?php _e('Last Modified', 'smart-ai-linker'); ?></th>
                             <th><?php _e('Actions', 'smart-ai-linker'); ?></th>
                         </tr>
                     </thead>
@@ -60,11 +81,26 @@
                                         <?php echo esc_html($activity->post_title); ?>
                                     </a>
                                 </td>
-                                <td><?php echo esc_html($activity->silo_name); ?></td>
+                                <td>
+                                    <span class="post-type-badge post-type-<?php echo esc_attr($activity->post_type); ?>">
+                                        <?php echo esc_html(ucfirst($activity->post_type)); ?>
+                                    </span>
+                                </td>
+                                <td>
+                                    <?php 
+                                    $links_count = intval($activity->links_count);
+                                    if ($links_count > 0) {
+                                        echo '<span class="links-count">' . $links_count . '</span>';
+                                    } else {
+                                        echo '<span class="no-links">0</span>';
+                                    }
+                                    ?>
+                                </td>
+                                <td><?php echo esc_html($activity->silo_name ?: '—'); ?></td>
                                 <td>
                                     <?php echo date_i18n(
                                         get_option('date_format') . ' ' . get_option('time_format'),
-                                        strtotime($activity->created_at)
+                                        strtotime($activity->post_modified)
                                     ); ?>
                                 </td>
                                 <td>

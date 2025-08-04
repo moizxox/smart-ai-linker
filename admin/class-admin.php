@@ -206,16 +206,41 @@ class Smart_AI_Linker_Admin {
         $page_count = wp_count_posts('page')->publish;
         $silo_count = count($this->silos->get_all_silos());
         
-        // Get recent activity
+        // Get link statistics
         global $wpdb;
-        $recent_activity = $wpdb->get_results(
-            "SELECT p.post_title, p.ID, sr.created_at, s.name as silo_name
-            FROM {$wpdb->prefix}smart_ai_silo_relationships sr
-            JOIN {$wpdb->posts} p ON sr.post_id = p.ID
-            JOIN {$wpdb->prefix}smart_ai_silos s ON sr.silo_id = s.id
-            ORDER BY sr.created_at DESC
-            LIMIT 5"
+        
+        // Get all posts with added links and count them properly
+        // Calculate total links by counting actual smart-ai-link tags in content
+        $posts_with_links = $wpdb->get_results(
+            "SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish' AND (post_type = 'post' OR post_type = 'page')"
         );
+        
+        $total_links = 0;
+        foreach ($posts_with_links as $post) {
+            $total_links += smart_ai_linker_count_actual_links($post->ID);
+        }
+        
+        $processed_posts = $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$wpdb->postmeta} 
+             WHERE meta_key = '_smart_ai_linker_processed'"
+        );
+        $processed_posts = $processed_posts ? intval($processed_posts) : 0;
+        
+        // Get recent activity with link counts
+        $recent_activity = $wpdb->get_results(
+            "SELECT p.post_title, p.ID, p.post_type, sr.created_at, s.name as silo_name
+            FROM {$wpdb->posts} p
+            LEFT JOIN {$wpdb->prefix}smart_ai_silo_relationships sr ON p.ID = sr.post_id
+            LEFT JOIN {$wpdb->prefix}smart_ai_silos s ON sr.silo_id = s.id
+            WHERE p.post_status = 'publish' AND (p.post_type = 'post' OR p.post_type = 'page')
+            ORDER BY p.post_modified DESC
+            LIMIT 10"
+        );
+        
+        // Process the link counts using real content counting
+        foreach ($recent_activity as $activity) {
+            $activity->links_count = smart_ai_linker_count_actual_links($activity->ID);
+        }
         
         include plugin_dir_path(__FILE__) . 'views/dashboard.php';
     }
