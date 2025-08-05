@@ -138,5 +138,5 @@ Under the hood, WordPress is primarily built using PHP, a popular server-side sc
 
 // Initialize the test class
 if (defined('WP_DEBUG') && WP_DEBUG) {
-    new Smart_AI_Linker_Test();
+    // Test class instantiation removed for production
 }

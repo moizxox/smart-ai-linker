@@ -85,21 +85,4 @@ function test_bulk_processing_handlers() {
     echo "<p>If you see mostly ✅ marks, the bulk processing functionality is working correctly.</p>";
 }
 
-// Add test to admin menu if in debug mode
-if (defined('WP_DEBUG') && WP_DEBUG) {
-    add_action('admin_menu', function() {
-        add_submenu_page(
-            'smart-ai-linker',
-            'Test Bulk Processing',
-            'Test Bulk Processing',
-            'manage_options',
-            'test-bulk-processing',
-            function() {
-                echo '<div class="wrap">';
-                echo '<h1>Bulk Processing Test</h1>';
-                test_bulk_processing_handlers();
-                echo '</div>';
-            }
-        );
-    });
-} 
+// Test pages removed for production 
