@@ -382,6 +382,21 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id, $post_type 
                 }
             }
             
+            // If still failing, try a more aggressive approach
+            if (json_last_error() !== JSON_ERROR_NONE || !is_array($suggestions)) {
+                // Try to clean up the response more aggressively
+                $ai_response = preg_replace('/[\r\n\t]/', ' ', $ai_response);
+                $ai_response = preg_replace('/\s+/', ' ', $ai_response);
+                
+                // Try to find JSON array with more flexible regex
+                if (preg_match('/\[.*?\]/s', $ai_response, $matches)) {
+                    $cleaned_json = $matches[0];
+                    // Remove any trailing commas
+                    $cleaned_json = preg_replace('/,\s*([}\]])/m', '$1', $cleaned_json);
+                    $suggestions = json_decode($cleaned_json, true);
+                }
+            }
+            
             // If we still don't have valid suggestions, log and return empty array
             if (json_last_error() !== JSON_ERROR_NONE || !is_array($suggestions)) {
                 error_log('[Smart AI] Failed to parse JSON response after fixes: ' . json_last_error_msg());
