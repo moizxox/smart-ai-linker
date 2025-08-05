@@ -10,6 +10,12 @@ A powerful WordPress plugin that uses advanced AI to automatically create meanin
 - **Automated Link Insertion**: Adds up to 7 relevant internal links (configurable)
 - **Bulk Processing**: Generate or update links across multiple posts at once
 
+### AI Image Description
+- **Automatic Image Analysis**: Uses Ideogram AI to analyze featured images and generate descriptions
+- **SEO-Optimized Alt Text**: Automatically creates descriptive alt text for better accessibility and SEO
+- **Smart Title Generation**: Generates meaningful image titles when missing
+- **Automatic Processing**: Works seamlessly when posts are saved or published
+
 ### Content Silo Management
 - **Silo Creation & Management**: Easily create and organize content silos
 - **Bulk Silo Assignment**: Assign multiple posts to silos in one go
@@ -29,20 +35,23 @@ A powerful WordPress plugin that uses advanced AI to automatically create meanin
 3. The plugin will automatically create necessary database tables
 4. Navigate to Smart AI Linker > Settings in your WordPress admin
 5. Enter your DeepSeek API key (get it from [DeepSeek Platform](https://platform.deepseek.com/))
-6. Configure your preferred settings for linking and silo management
+6. Enter your Ideogram API key (get it from [Ideogram Platform](https://ideogram.ai/))
+7. Configure your preferred settings for linking, image description, and silo management
 
 ### Requirements
 - WordPress 5.6 or higher
 - PHP 7.4 or higher (PHP 8.0+ recommended)
 - MySQL 5.7+ or MariaDB 10.3+
 - cURL extension enabled
-- DeepSeek API key (for AI features)
+- DeepSeek API key (for AI linking features)
+- Ideogram API key (for AI image description features)
 
 ## ⚙️ Configuration
 
 ### 1. General Settings
 - **API Configuration**
-  - **DeepSeek API Key**: Required for AI processing [Get your API key](https://platform.deepseek.com/)
+  - **DeepSeek API Key**: Required for AI linking features [Get your API key](https://platform.deepseek.com/)
+  - **Ideogram API Key**: Required for AI image description features [Get your API key](https://ideogram.ai/)
   - **Enable AI Features**: Toggle AI-powered suggestions on/off
 
 ### 2. Linking Settings
@@ -64,7 +73,12 @@ A powerful WordPress plugin that uses advanced AI to automatically create meanin
 - **Minimum Word Count**: Set minimum content length for processing (default: 100 words)
 - **Exclude IDs**: List post IDs to exclude from processing
 
-### 5. Advanced Options
+### 5. Image Description Settings
+- **Auto-Description**: Automatically generate descriptions for featured images
+- **Description Quality**: AI analyzes images and creates SEO-friendly alt text and titles
+- **Processing Triggers**: Works when posts are saved, published, or updated
+
+### 6. Advanced Options
 - **Debug Mode**: Enable detailed error logging
 - **API Timeout**: Set timeout for API requests (default: 30s)
 - **Batch Size**: Number of posts to process in bulk operations
@@ -109,6 +123,13 @@ A powerful WordPress plugin that uses advanced AI to automatically create meanin
 2. Click "Bulk Generate Links"
 3. Select content to process
 4. Click "Process" and monitor progress
+
+### 5. Image Description
+The plugin automatically analyzes featured images when posts are saved or published:
+- **Automatic Processing**: No manual intervention required
+- **SEO Enhancement**: Creates descriptive alt text and titles
+- **Accessibility**: Improves accessibility for screen readers
+- **Smart Detection**: Only processes images that need descriptions
 
 ## 📊 Monitoring & Reporting
 
@@ -160,8 +181,9 @@ To run the included tests:
 
 ## ❓ Frequently Asked Questions
 
-### Where do I get a DeepSeek API key?
-Sign up at [DeepSeek Platform](https://platform.deepseek.com/) to get your API key. The free tier includes sufficient requests for most small to medium sites.
+### Where do I get API keys?
+- **DeepSeek API Key**: Sign up at [DeepSeek Platform](https://platform.deepseek.com/) to get your API key. The free tier includes sufficient requests for most small to medium sites.
+- **Ideogram API Key**: Sign up at [Ideogram Platform](https://ideogram.ai/) to get your API key for image description features.
 
 ### How does the plugin choose which links to insert?
 The AI analyzes your content's context and suggests the most relevant internal links based on semantic meaning, content relevance, and your site's structure.
@@ -179,17 +201,22 @@ The plugin is optimized for minimal impact:
 ### How many links will be added to each post?
 By default, up to 7 links are added, but you can adjust this in the settings. The actual number may be less if the AI can't find enough relevant content to link to.
 
+### How does the image description feature work?
+The plugin automatically analyzes featured images using Ideogram AI when posts are saved or published. It only processes images that don't already have descriptive titles or alt text, creating SEO-friendly descriptions that improve accessibility and search rankings.
+
 ## 📈 Benefits
 
 ### For Content Creators
-- Saves hours of manual link building
+- Saves hours of manual link building and image optimization
 - Improves content quality and depth
 - Enhances reader experience with relevant internal links
+- Automatically optimizes images for SEO and accessibility
 
 ### For Site Owners
-- Boosts SEO performance
+- Boosts SEO performance through better internal linking and image optimization
 - Increases page views and reduces bounce rates
 - Strengthens content hierarchy and site structure
+- Improves accessibility compliance
 
 ## 🤝 Support
 
