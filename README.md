@@ -122,33 +122,6 @@ A powerful WordPress plugin that uses advanced AI to automatically create meanin
 - Internal link structure visualization
 - SEO impact analysis
 
-## 🔍 Advanced Features
-
-### Custom Link Rules
-- Define specific linking rules
-- Set preferred anchor text
-- Create manual link overrides
-
-### Performance Optimization
-- Schedule bulk operations during off-peak hours
-- Set processing priorities
-- Monitor resource usage
-
-## 🤝 Support
-
-For support, feature requests, or bug reports, please:
-1. Check the [FAQ](#) section
-2. Visit our [support forum](#)
-3. Contact support@example.com
-
-## 📜 Changelog
-
-### 1.0.0 - 2025-07-19
-- Initial release with complete silo management
-- AI-powered internal linking
-- Bulk processing capabilities
-- Comprehensive reporting
-
 ## 🔒 Security
 
 All data is processed securely:
@@ -161,38 +134,29 @@ All data is processed securely:
 
 We welcome contributions! Please read our [contributing guidelines](CONTRIBUTING.md) before submitting pull requests.
 
-### Automatic Linking (Recommended)
-1. Write or edit your content as usual
-2. Publish or update the post/page
-3. The plugin will automatically analyze and insert relevant internal links
-4. Links are inserted with the class `smart-ai-link` for easy styling
+## 🧭 File Structure
 
-### Manual Linking
-1. Edit any post or page
-2. Locate the "Smart AI Linker" meta box in the sidebar
-3. Click "Generate Links" to create and insert links manually
-4. Use "Clear Links" to remove all AI-generated links from the content
+```
+smart-ai-linker/
+  admin/                # Admin UI and settings
+  api/                  # API clients and integrations
+  assets/               # CSS and JS assets
+  includes/             # Core plugin logic (linking, silos, etc.)
+  tests/                # Test scripts
+  smart-ai-linker.php   # Main plugin file
+  uninstall.php         # Uninstall script
+```
 
-### Bulk Processing
+## 🧪 Testing
 
-#### Process Multiple Posts/Pages
-1. Navigate to Posts or Pages in WordPress admin
-2. Select the posts/pages you want to process
-3. Choose "Generate AI Links" from the Bulk Actions dropdown
-4. Click "Apply" to process all selected items
+To run the included tests:
 
-#### Process All Unprocessed Content
-1. Go to Posts or Pages in WordPress admin
-2. Look for the "Process All Unprocessed" button above the posts list
-3. Click the button to automatically process all unprocessed posts/pages
-4. A progress indicator will show the status
-5. You'll receive a success message when complete
-
-#### How It Works
-- The plugin tracks which posts have been processed
-- Only unprocessed posts will be included in bulk actions
-- You can reprocess posts by manually clearing the "Processed" flag in post meta
-- The system automatically skips posts that are too short or already processed
+1. Ensure you have PHPUnit installed and configured for your environment.
+2. Run the test scripts in the `tests/` directory, e.g.:
+   ```
+   php tests/test-connection.php
+   php tests/test-internal-linking.php
+   ```
 
 ## ❓ Frequently Asked Questions
 
@@ -227,9 +191,9 @@ By default, up to 7 links are added, but you can adjust this in the settings. Th
 - Increases page views and reduces bounce rates
 - Strengthens content hierarchy and site structure
 
-## 🛠 Support
+## 🤝 Support
 
-For support or feature requests, please [open an issue](https://github.com/nerdxsolution/smart-ai-linker/issues) on GitHub.
+For support or feature requests, please [open an issue](https://github.com/nerdxsolution/smart-ai-linker/issues) on GitHub. For general questions, check the FAQ above or contact support@example.com.
 
 ## 📜 Changelog
 
