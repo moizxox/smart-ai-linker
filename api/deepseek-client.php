@@ -105,7 +105,18 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id, $post_type 
     
     // Get existing links to avoid suggesting duplicates
     $existing_links = get_post_meta($post_id, '_smart_ai_linker_added_links', true) ?: [];
-    $existing_urls = array_column($existing_links, 'url');
+    
+    // Handle both array and object formats for existing links
+    $existing_urls = [];
+    if (!empty($existing_links)) {
+        foreach ($existing_links as $link) {
+            if (is_array($link) && isset($link['url'])) {
+                $existing_urls[] = $link['url'];
+            } elseif (is_object($link) && isset($link->url)) {
+                $existing_urls[] = $link->url;
+            }
+        }
+    }
     
     // Get current post type
     $current_post_type = get_post_type($post_id);
@@ -195,7 +206,7 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id, $post_type 
 " .
              " {\"anchor\": \"WordPress optimization\", \"url\": \"https://example.com/optimize/\"}]\n\n" .
              "Now analyze this content and provide your response:\n" .
-             substr($content, 0, 10000); // Increased content limit for better context
+             substr($content, 0, 15000); // Increased content limit for better context and analysis
 
     // Prepare the API request
     $api_url = 'https://api.deepseek.com/v1/chat/completions';

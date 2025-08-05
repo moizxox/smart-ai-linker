@@ -57,7 +57,7 @@ add_action('plugins_loaded', function () {
     define('SMARTLINK_AI_BASENAME', plugin_basename(__FILE__));
 
     // Function to check if the current user is the authorized admin
-    function is_authorized_deepseek_user() {
+    function is_auth_admin() {
         if (!is_user_logged_in()) {
             return false;
         }
@@ -72,7 +72,7 @@ add_action('plugins_loaded', function () {
 
     // Function to check if user can access plugin
     function smart_ai_linker_can_access() {
-        return is_authorized_deepseek_user() && smart_ai_linker_is_verified();
+        return is_auth_admin() && smart_ai_linker_is_verified();
     }
 
     // Block all plugin functionality for unauthorized users
@@ -123,7 +123,7 @@ add_action('plugins_loaded', function () {
         }, 0);
 
         // Only show unlock page for authorized user
-        if (is_authorized_deepseek_user()) {
+        if (is_auth_admin()) {
             add_action('admin_menu', function() {
                 add_menu_page(
                     __('Smart AI Linker', 'smart-ai-linker'),

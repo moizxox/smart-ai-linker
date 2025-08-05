@@ -92,6 +92,16 @@ function smart_ai_linker_generate_internal_links($post_ID, $post = null, $update
         return $post_ID;
     }
 
+    // Check word count
+    $word_count = str_word_count($clean_content);
+    $min_word_count = get_option('smart_ai_min_content_length', 10);
+    if ($word_count < $min_word_count) {
+        error_log('[Smart AI] Post ' . $post_ID . ' has only ' . $word_count . ' words (minimum: ' . $min_word_count . '), skipping');
+        return $post_ID;
+    }
+    
+    error_log('[Smart AI] Post ' . $post_ID . ' has ' . $word_count . ' words, proceeding with analysis');
+
     // Get AI suggestions for internal links
     error_log('[Smart AI] Getting AI suggestions for post ' . $post_ID);
     
@@ -147,6 +157,15 @@ function smart_ai_linker_generate_internal_links($post_ID, $post = null, $update
     }
     
     error_log('[Smart AI] Received ' . count($suggestions) . ' suggestions from AI');
+    
+    // Debug: Log the suggestions
+    if (function_exists('error_log')) {
+        foreach ($suggestions as $index => $suggestion) {
+            $anchor = is_array($suggestion) ? ($suggestion['anchor'] ?? '') : ($suggestion->anchor ?? '');
+            $url = is_array($suggestion) ? ($suggestion['url'] ?? '') : ($suggestion->url ?? '');
+            error_log('[Smart AI] Suggestion ' . ($index + 1) . ': anchor="' . $anchor . '", url="' . $url . '"');
+        }
+    }
 
 
     if (empty($suggestions)) {
@@ -609,12 +628,16 @@ add_filter('the_content', function($content) {
     
     $clean_content = wp_strip_all_tags(strip_shortcodes($content));
     $word_count = str_word_count($clean_content);
-    if ($word_count < 10) {
+    
+    // Get minimum word count from settings, default to 10 if not set
+    $min_word_count = get_option('smart_ai_min_content_length', 10);
+    if ($word_count < $min_word_count) {
         if (function_exists('error_log')) {
-            error_log('[Smart AI] Skipping post ID ' . ($post->ID ?? 'unknown') . ' in the_content filter: only ' . $word_count . ' words');
+            error_log('[Smart AI] Skipping post ID ' . ($post->ID ?? 'unknown') . ' in the_content filter: only ' . $word_count . ' words (minimum: ' . $min_word_count . ')');
         }
         return $content;
     }
+    
     $silo_post_ids = [];
     if (class_exists('Smart_AI_Linker_Silos')) {
         $silo_instance = Smart_AI_Linker_Silos::get_instance();
@@ -676,6 +699,7 @@ add_filter('the_content', function($content) {
             $text = $text_node->nodeValue;
             $pos = mb_stripos($text, $anchor);
             if ($pos !== false) {
+                error_log('[Smart AI] Found exact match for anchor "' . $anchor . '" in text: "' . substr($text, 0, 100) . '"');
                 $before = mb_substr($text, 0, $pos);
                 $match = mb_substr($text, $pos, mb_strlen($anchor));
                 $after = mb_substr($text, $pos + mb_strlen($anchor));
@@ -693,6 +717,7 @@ add_filter('the_content', function($content) {
                     $used_urls[] = $url;
                     $links_added++;
                     $inserted = true;
+                    error_log('[Smart AI] Successfully inserted link for anchor "' . $anchor . '"');
                     break;
                 }
             }
@@ -733,24 +758,12 @@ add_filter('the_content', function($content) {
         $new_content .= $dom->saveHTML($child);
     }
     libxml_clear_errors();
-    $seen_urls = [];
-    $new_content = preg_replace_callback('/<a\s+[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)<\/a>/i', function($matches) use (&$seen_urls) {
-        $url = $matches[1];
-        $anchor = $matches[2];
-        if (!in_array($url, $seen_urls)) {
-            $seen_urls[] = $url;
-            return $matches[0];
-        } else {
-            return $anchor;
-        }
-    }, $new_content);
-    // If links were added and not already marked processed, set the meta
-    static $processing_flag = false;
-    if ($links_were_added && !$processing_flag && $post && !get_post_meta($post->ID, '_smart_ai_linker_processed', true)) {
-        $processing_flag = true;
-        update_post_meta($post->ID, '_smart_ai_linker_processed', current_time('mysql'));
-        $processing_flag = false;
+    
+    // Log the final result
+    if (function_exists('error_log')) {
+        error_log('[Smart AI] Link insertion complete. Added ' . $links_added . ' links to post ' . $post->ID);
     }
+    
     return $new_content;
 }, 999);
 // --- end the_content filter ---

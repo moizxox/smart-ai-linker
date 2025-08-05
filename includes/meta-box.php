@@ -61,8 +61,14 @@ function smart_ai_linker_meta_box_callback($post) {
                     
                     // Only show links that are actually in the post content
                     foreach ($added_links as $link) {
-                        $anchor = isset($link['anchor']) ? $link['anchor'] : (isset($link['anchor_text']) ? $link['anchor_text'] : '');
-                        $url = isset($link['url']) ? $link['url'] : '';
+                        // Handle both array and object formats
+                        if (is_array($link)) {
+                            $anchor = isset($link['anchor']) ? $link['anchor'] : (isset($link['anchor_text']) ? $link['anchor_text'] : '');
+                            $url = isset($link['url']) ? $link['url'] : '';
+                        } else {
+                            $anchor = isset($link->anchor) ? $link->anchor : (isset($link->anchor_text) ? $link->anchor_text : '');
+                            $url = isset($link->url) ? $link->url : '';
+                        }
                         
                         if ($anchor && $url) {
                             // Check if this link actually exists in the post content

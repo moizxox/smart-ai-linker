@@ -21,6 +21,7 @@ add_filter('plugin_action_links_' . plugin_basename(dirname(__DIR__) . '/smart-a
 function smart_ai_linker_register_settings() {
     // Register settings
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_api_key');
+    register_setting('smart_ai_linker_settings', 'smart_ai_linker_ideogram_api_key');
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_enable_auto_linking');
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_max_links');
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_post_types');
@@ -41,6 +42,14 @@ function smart_ai_linker_register_settings() {
         'smart_ai_linker_api_key_field',
         'DeepSeek API Key',
         'smart_ai_linker_api_key_field_callback',
+        'smart-ai-linker',
+        'smart_ai_linker_general_section'
+    );
+    
+    add_settings_field(
+        'smart_ai_linker_ideogram_api_key_field',
+        'Ideogram API Key',
+        'smart_ai_linker_ideogram_api_key_field_callback',
         'smart-ai-linker',
         'smart_ai_linker_general_section'
     );
@@ -220,6 +229,19 @@ function smart_ai_linker_api_key_field_callback() {
            class="regular-text" />
     <p class="description">
         Enter your DeepSeek API key. <a href="https://platform.deepseek.com/" target="_blank">Get API Key</a>
+    </p>
+    <?php
+}
+
+function smart_ai_linker_ideogram_api_key_field_callback() {
+    $ideogram_api_key = get_option('smart_ai_linker_ideogram_api_key', '');
+    ?>
+    <input type="password" id="smart_ai_linker_ideogram_api_key" 
+           name="smart_ai_linker_ideogram_api_key" 
+           value="<?php echo esc_attr($ideogram_api_key); ?>" 
+           class="regular-text" />
+    <p class="description">
+        Enter your Ideogram API key for image generation. <a href="https://ideogram.ai/" target="_blank">Get API Key</a>
     </p>
     <?php
 }

@@ -19,7 +19,8 @@ add_action('save_post', function($post_ID, $post, $update) {
     // Only describe if title or alt is empty
     if (!empty($current_title) && !empty($current_alt)) return;
     // Prepare API call
-    $api_key = 'SWxKc7mp2FIzroAvC_-E0i_2tVy_8h8qFZ6t6fsOL1SRaO3wJ5jCpVIE_kIiMSREl27su7FbH3ohtsp6K8d3sA';
+    $api_key = get_option('smart_ai_linker_ideogram_api_key', '');
+    if (empty($api_key)) return; // Don't proceed if no API key is set
     $url = 'https://api.ideogram.ai/describe';
     // Use cURL for multipart/form-data
     $ch = curl_init();
