@@ -564,8 +564,10 @@ add_action('wp_ajax_smart_ai_bulk_next', function() {
     $post_id = array_shift($queue);
     
     if ($post_id) {
+        // Process the post and get result
         $result = smart_ai_linker_process_single_post($post_id);
         
+        // Update progress based on result
         switch ($result['status']) {
             case 'processed':
                 $progress['processed']++;
@@ -582,10 +584,45 @@ add_action('wp_ajax_smart_ai_bulk_next', function() {
                 break;
         }
         
+        // Update the queue and progress in database
         update_option('smart_ai_linker_bulk_queue', $queue);
         update_option('smart_ai_linker_bulk_progress', $progress);
         
-        wp_send_json_success(array('done' => false, 'progress' => $progress));
+        // Get current post info for display
+        $post = get_post($post_id);
+        $current_post_info = $post ? $post->post_title : "Post ID: {$post_id}";
+        
+        // Verify the actual processing status from database
+        $actual_status = get_post_meta($post_id, '_smart_ai_linker_processed', true);
+        $actual_links = get_post_meta($post_id, '_smart_ai_linker_added_links', true);
+        
+        // Double-check the status if there's a discrepancy
+        if ($result['status'] === 'processed' && empty($actual_status)) {
+            // If we think it was processed but no meta exists, mark as error
+            $progress['status'][$post_id] = 'error';
+            $progress['errors'][] = "Post ID {$post_id}: Processing verification failed";
+        } elseif ($result['status'] === 'error' && !empty($actual_status)) {
+            // If we think it failed but meta exists, mark as processed
+            $progress['status'][$post_id] = 'processed';
+            $progress['processed']++;
+            $progress['skipped']--; // Adjust the count
+            // Remove the error from the list
+            $progress['errors'] = array_filter($progress['errors'], function($error) use ($post_id) {
+                return strpos($error, "Post ID {$post_id}:") === false;
+            });
+        }
+        
+        // Update the progress again with verified status
+        update_option('smart_ai_linker_bulk_progress', $progress);
+        
+        wp_send_json_success(array(
+            'done' => false, 
+            'progress' => $progress,
+            'current_post' => $current_post_info,
+            'current_post_id' => $post_id,
+            'verified_status' => $progress['status'][$post_id],
+            'actual_meta' => !empty($actual_status)
+        ));
     } else {
         wp_send_json_success(array('done' => true, 'progress' => $progress));
     }
@@ -608,8 +645,42 @@ add_action('wp_ajax_smart_ai_bulk_status', function() {
     $queue = get_option('smart_ai_linker_bulk_queue', []);
     $progress = get_option('smart_ai_linker_bulk_progress', array('total' => 0, 'processed' => 0, 'skipped' => 0, 'errors' => [], 'status' => []));
     
+    // Only consider it running if there's actually a queue with items
+    $is_running = !empty($queue) && count($queue) > 0;
+    
+    // Verify status accuracy by checking actual post meta
+    if (!empty($progress['status'])) {
+        $verified_status = [];
+        $verified_counts = ['processed' => 0, 'skipped' => 0, 'error' => 0];
+        
+        foreach ($progress['status'] as $post_id => $reported_status) {
+            $actual_status = get_post_meta($post_id, '_smart_ai_linker_processed', true);
+            $actual_links = get_post_meta($post_id, '_smart_ai_linker_added_links', true);
+            
+            // Determine the actual status based on database
+            if (!empty($actual_status) && !empty($actual_links)) {
+                $verified_status[$post_id] = 'processed';
+                $verified_counts['processed']++;
+            } elseif ($reported_status === 'skipped') {
+                $verified_status[$post_id] = 'skipped';
+                $verified_counts['skipped']++;
+            } else {
+                $verified_status[$post_id] = 'error';
+                $verified_counts['error']++;
+            }
+        }
+        
+        // Update progress with verified status
+        $progress['status'] = $verified_status;
+        $progress['processed'] = $verified_counts['processed'];
+        $progress['skipped'] = $verified_counts['skipped'];
+        
+        // Update the stored progress
+        update_option('smart_ai_linker_bulk_progress', $progress);
+    }
+    
     wp_send_json_success(array(
-        'running' => !empty($queue),
+        'running' => $is_running,
         'progress' => $progress
     ));
 });

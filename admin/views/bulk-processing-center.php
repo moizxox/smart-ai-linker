@@ -43,7 +43,7 @@
         </div>
     </div>
 
-    <div class="smart-ai-progress-container" style="display:none;">
+    <div class="smart-ai-progress-container" style="display:none;" id="progress-container">
         <div class="progress-bar-container">
             <div class="progress-bar">
                 <div class="progress-fill"></div>
@@ -218,6 +218,19 @@
         .status-skipped { background: #ffb900; color: #fff; }
         .status-error { background: #dc3232; color: #fff; }
         
+        .post-status {
+            position: relative;
+            padding-right: 20px;
+        }
+        
+        .post-status .verification-icon {
+            position: absolute;
+            right: 5px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 12px;
+        }
+        
         .empty-state {
             text-align: center;
             color: #666;
@@ -283,13 +296,21 @@
             let statusClass = 'status-' + status;
             let statusText = status.charAt(0).toUpperCase() + status.slice(1);
             
+            // Add verification indicator for processed posts
+            let verificationIcon = '';
+            if (status === 'processed') {
+                verificationIcon = ' <span style="color: #46b450; font-size: 12px;">✓</span>';
+            } else if (status === 'error') {
+                verificationIcon = ' <span style="color: #dc3232; font-size: 12px;">⚠</span>';
+            }
+            
             html += `
                 <div class="post-item" data-id="${post.id}">
                     <div class="post-info">
                         <div class="post-title">${$('<div>').text(post.title).html()}</div>
                         <div class="post-meta">ID: ${post.id} | ${post.word_count} words</div>
                     </div>
-                    <span class="post-status ${statusClass}">${statusText}</span>
+                    <span class="post-status ${statusClass}">${statusText}${verificationIcon}</span>
                 </div>
             `;
         });
@@ -321,11 +342,11 @@
         if (isProcessing) {
             $('#bulk-center-start').prop('disabled', true).hide();
             $('#bulk-center-stop').show();
-            $('.smart-ai-progress-container').show();
+            $('#progress-container').show();
         } else {
             $('#bulk-center-start').prop('disabled', postList.length === 0).show();
             $('#bulk-center-stop').hide();
-            $('.smart-ai-progress-container').hide();
+            $('#progress-container').hide();
         }
     }
 
@@ -342,7 +363,9 @@
     function pollStatus() {
         $.post(ajaxurl, {action:'smart_ai_bulk_status'}, function(response){
             if(response.success) {
+                // Update progress with verified data
                 updateProgressDetails(response.data.progress);
+                
                 if(response.data.running) {
                     isProcessing = true;
                     updateButtonStates();
@@ -355,6 +378,8 @@
                     }
                 }
             }
+        }).fail(function() {
+            console.log('Status polling failed, will retry...');
         });
     }
 
@@ -400,6 +425,7 @@
         updateButtonStates();
         clearErrors();
         updateStats();
+        $('#progress-container').hide();
     });
 
     $('#bulk-center-start').on('click', function() {
@@ -415,11 +441,39 @@
                 // Start polling and processing
                 polling = setInterval(function(){
                     $.post(ajaxurl, {action:'smart_ai_bulk_next'}, function(nextResp){
-                        pollStatus();
-                        if(nextResp.success && nextResp.data.done) {
+                        if(nextResp.success) {
+                            // Update progress immediately
+                            if (nextResp.data.progress) {
+                                updateProgressDetails(nextResp.data.progress);
+                            }
+                            
+                            if(nextResp.data.done) {
+                                clearInterval(polling);
+                                isProcessing = false;
+                                updateButtonStates();
+                                alert('Bulk processing completed!');
+                            } else {
+                                // Update current post info if available
+                                if (nextResp.data.current_post) {
+                                    $('#current-post').text(nextResp.data.current_post);
+                                }
+                                
+                                // Show verification status if available
+                                if (nextResp.data.verified_status) {
+                                    console.log(`Post ${nextResp.data.current_post_id} verified as: ${nextResp.data.verified_status}`);
+                                }
+                            }
+                        } else {
                             clearInterval(polling);
-                            pollStatus();
+                            isProcessing = false;
+                            updateButtonStates();
+                            showError('Processing error: ' + (nextResp.data || 'Unknown error'));
                         }
+                    }).fail(function() {
+                        clearInterval(polling);
+                        isProcessing = false;
+                        updateButtonStates();
+                        showError('Processing failed. Please try again.');
                     });
                 }, 2000);
             } else {
@@ -435,26 +489,72 @@
     });
 
     $('#bulk-center-stop').on('click', function() {
-        $.post(ajaxurl, {action:'smart_ai_bulk_stop'}, function(){
+        if (polling) {
             clearInterval(polling);
+            polling = null;
+        }
+        
+        $.post(ajaxurl, {action:'smart_ai_bulk_stop'}, function(response){
+            if (response.success) {
+                isProcessing = false;
+                updateButtonStates();
+                showError('Processing stopped by user.');
+            } else {
+                showError('Failed to stop processing.');
+            }
+        }).fail(function() {
             isProcessing = false;
             updateButtonStates();
-            pollStatus();
+            showError('Failed to stop processing. Please try again.');
         });
     });
 
     $('#bulk-center-reset').on('click', function() {
         if (confirm('This will reset all progress and start fresh. Continue?')) {
-            $.post(ajaxurl, {action:'smart_ai_bulk_stop'}, function(){
+            if (polling) {
                 clearInterval(polling);
+                polling = null;
+            }
+            
+            $.post(ajaxurl, {action:'smart_ai_bulk_stop'}, function(response){
                 isProcessing = false;
                 currentProgress = { total: 0, processed: 0, skipped: 0, errors: [] };
                 updateButtonStates();
                 updateStats();
                 clearErrors();
                 renderList();
+                $('#progress-container').hide();
+                $('.progress-fill').css('width', '0%');
+                $('.progress-text').text('0%');
+                $('#current-status').text('Ready to start...');
+                $('#current-post').text('-');
+            }).fail(function() {
+                // Even if the stop request fails, reset the UI
+                isProcessing = false;
+                currentProgress = { total: 0, processed: 0, skipped: 0, errors: [] };
+                updateButtonStates();
+                updateStats();
+                clearErrors();
+                renderList();
+                $('#progress-container').hide();
+                $('.progress-fill').css('width', '0%');
+                $('.progress-text').text('0%');
+                $('#current-status').text('Ready to start...');
+                $('#current-post').text('-');
             });
         }
+    });
+
+    // Add refresh status button for debugging
+    $('#bulk-center-load-posts').after('<button id="refresh-status" class="button" style="margin-left: 10px;">Refresh Status</button>');
+    
+    $('#refresh-status').on('click', function() {
+        $.post(ajaxurl, {action:'smart_ai_bulk_status'}, function(response){
+            if(response.success) {
+                updateProgressDetails(response.data.progress);
+                console.log('Status refreshed:', response.data.progress);
+            }
+        });
     });
 
     // On page load, initialize the interface
@@ -462,14 +562,44 @@
         updateButtonStates();
         updateStats();
         
-        // Check for running process
+        // Check for running process - but don't assume it's running
         $.post(ajaxurl, {action:'smart_ai_bulk_status'}, function(resp) {
-            if (resp.success && resp.data.running) {
+            if (resp.success && resp.data.running && resp.data.progress.total > 0) {
                 isProcessing = true;
                 updateProgressDetails(resp.data.progress);
                 updateButtonStates();
-                setTimeout(pollStatus, 1000);
+                
+                // Start polling for updates
+                polling = setInterval(function(){
+                    $.post(ajaxurl, {action:'smart_ai_bulk_status'}, function(statusResp){
+                        if(statusResp.success) {
+                            updateProgressDetails(statusResp.data.progress);
+                            if(!statusResp.data.running) {
+                                clearInterval(polling);
+                                isProcessing = false;
+                                updateButtonStates();
+                                if (statusResp.data.progress.processed > 0) {
+                                    alert('Bulk processing completed!');
+                                }
+                            }
+                        }
+                    });
+                }, 2000);
+            } else {
+                // No running process, ensure clean state
+                isProcessing = false;
+                currentProgress = { total: 0, processed: 0, skipped: 0, errors: [] };
+                updateButtonStates();
+                updateStats();
+                $('#progress-container').hide();
             }
+        }).fail(function() {
+            // If status check fails, assume no running process
+            isProcessing = false;
+            currentProgress = { total: 0, processed: 0, skipped: 0, errors: [] };
+            updateButtonStates();
+            updateStats();
+            $('#progress-container').hide();
         });
     });
 })(jQuery);
