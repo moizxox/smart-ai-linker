@@ -2,9 +2,7 @@
 if (!defined('ABSPATH'))
     exit;
 
-/**
- * Admin Settings Page for Smart AI Linker
- */
+/** Admin Settings Page for Smart AI Linker */
 
 // Register settings
 add_action('admin_init', 'smart_ai_linker_register_settings');
@@ -18,7 +16,8 @@ add_filter('plugin_action_links_' . plugin_basename(dirname(__DIR__) . '/smart-a
 /**
  * Register plugin settings
  */
-function smart_ai_linker_register_settings() {
+function smart_ai_linker_register_settings()
+{
     // Register settings
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_api_key');
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_ideogram_api_key');
@@ -28,7 +27,7 @@ function smart_ai_linker_register_settings() {
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_enable_broken_links');
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_enable_page_to_page');
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_excluded_posts');
-    
+
     // Add settings section
     add_settings_section(
         'smart_ai_linker_general_section',
@@ -36,7 +35,7 @@ function smart_ai_linker_register_settings() {
         'smart_ai_linker_general_section_callback',
         'smart-ai-linker'
     );
-    
+
     // Add settings fields
     add_settings_field(
         'smart_ai_linker_api_key_field',
@@ -45,7 +44,7 @@ function smart_ai_linker_register_settings() {
         'smart-ai-linker',
         'smart_ai_linker_general_section'
     );
-    
+
     add_settings_field(
         'smart_ai_linker_ideogram_api_key_field',
         'Ideogram API Key',
@@ -53,7 +52,7 @@ function smart_ai_linker_register_settings() {
         'smart-ai-linker',
         'smart_ai_linker_general_section'
     );
-    
+
     add_settings_field(
         'smart_ai_linker_enable_auto_linking_field',
         'Enable Auto-Linking',
@@ -61,7 +60,7 @@ function smart_ai_linker_register_settings() {
         'smart-ai-linker',
         'smart_ai_linker_general_section'
     );
-    
+
     add_settings_field(
         'smart_ai_linker_max_links_field',
         'Maximum Links per Post',
@@ -69,7 +68,7 @@ function smart_ai_linker_register_settings() {
         'smart-ai-linker',
         'smart_ai_linker_general_section'
     );
-    
+
     add_settings_field(
         'smart_ai_linker_post_types_field',
         'Enable for Post Types',
@@ -77,7 +76,7 @@ function smart_ai_linker_register_settings() {
         'smart-ai-linker',
         'smart_ai_linker_general_section'
     );
-    
+
     add_settings_field(
         'smart_ai_linker_enable_broken_links_field',
         'Enable Broken Link Checker',
@@ -85,7 +84,7 @@ function smart_ai_linker_register_settings() {
         'smart-ai-linker',
         'smart_ai_linker_general_section'
     );
-    
+
     add_settings_field(
         'smart_ai_linker_enable_page_to_page_field',
         'Enable Page-to-Page Linking',
@@ -106,7 +105,8 @@ function smart_ai_linker_register_settings() {
 /**
  * Add settings link on plugin page
  */
-function smart_ai_linker_settings_link($links) {
+function smart_ai_linker_settings_link($links)
+{
     $settings_link = '<a href="' . admin_url('admin.php?page=smart-ai-linker') . '">' . __('Settings') . '</a>';
     array_unshift($links, $settings_link);
     return $links;
@@ -115,7 +115,8 @@ function smart_ai_linker_settings_link($links) {
 /**
  * Add admin menu item
  */
-function smart_ai_linker_admin_menu() {
+function smart_ai_linker_admin_menu()
+{
     if (!current_user_can('administrator')) {
         return;
     }
@@ -133,7 +134,8 @@ function smart_ai_linker_admin_menu() {
 /**
  * Settings page callback
  */
-function smart_ai_linker_settings_page() {
+function smart_ai_linker_settings_page()
+{
     // Check user capabilities
     if (!current_user_can('manage_options')) {
         return;
@@ -171,13 +173,13 @@ function smart_ai_linker_settings_page() {
         <?php
         return;
     }
-    
+
     // Show success/error messages
     if (isset($_GET['settings-updated'])) {
-        add_settings_error('smart_ai_linker_messages', 'smart_ai_linker_message', 
+        add_settings_error('smart_ai_linker_messages', 'smart_ai_linker_message',
             'Settings Saved', 'updated');
     }
-    
+
     // Show error messages
     settings_errors('smart_ai_linker_messages');
     ?>
@@ -213,14 +215,16 @@ function smart_ai_linker_settings_page() {
 /**
  * Section callbacks
  */
-function smart_ai_linker_general_section_callback() {
+function smart_ai_linker_general_section_callback()
+{
     echo '<p>Configure the basic settings for Smart AI Linker.</p>';
 }
 
 /**
  * Field callbacks
  */
-function smart_ai_linker_api_key_field_callback() {
+function smart_ai_linker_api_key_field_callback()
+{
     $api_key = get_option('smart_ai_linker_api_key', '');
     ?>
     <input type="password" id="smart_ai_linker_api_key" 
@@ -233,7 +237,8 @@ function smart_ai_linker_api_key_field_callback() {
     <?php
 }
 
-function smart_ai_linker_ideogram_api_key_field_callback() {
+function smart_ai_linker_ideogram_api_key_field_callback()
+{
     $ideogram_api_key = get_option('smart_ai_linker_ideogram_api_key', '');
     ?>
     <input type="password" id="smart_ai_linker_ideogram_api_key" 
@@ -246,7 +251,8 @@ function smart_ai_linker_ideogram_api_key_field_callback() {
     <?php
 }
 
-function smart_ai_linker_enable_auto_linking_field_callback() {
+function smart_ai_linker_enable_auto_linking_field_callback()
+{
     $enabled = get_option('smart_ai_linker_enable_auto_linking', '1');
     ?>
     <label>
@@ -258,7 +264,8 @@ function smart_ai_linker_enable_auto_linking_field_callback() {
     <?php
 }
 
-function smart_ai_linker_max_links_field_callback() {
+function smart_ai_linker_max_links_field_callback()
+{
     $max_links = get_option('smart_ai_linker_max_links', '7');
     ?>
     <input type="number" id="smart_ai_linker_max_links" 
@@ -271,10 +278,11 @@ function smart_ai_linker_max_links_field_callback() {
     <?php
 }
 
-function smart_ai_linker_post_types_field_callback() {
+function smart_ai_linker_post_types_field_callback()
+{
     $post_types = get_post_types(['public' => true], 'objects');
     $enabled_types = get_option('smart_ai_linker_post_types', ['post', 'page']);
-    
+
     foreach ($post_types as $post_type) {
         $checked = in_array($post_type->name, (array) $enabled_types) ? 'checked' : '';
         echo "<label><input type='checkbox' name='smart_ai_linker_post_types[]' value='{$post_type->name}' {$checked}> {$post_type->label}</label><br>";
@@ -282,21 +290,25 @@ function smart_ai_linker_post_types_field_callback() {
     echo '<p class="description">Select which post types should have automatic internal linking.</p>';
 }
 
-function smart_ai_linker_enable_broken_links_field_callback() {
+function smart_ai_linker_enable_broken_links_field_callback()
+{
     $enabled = get_option('smart_ai_linker_enable_broken_links', '1');
     echo "<label><input type='checkbox' name='smart_ai_linker_enable_broken_links' value='1' " . checked('1', $enabled, false) . '> Enable automatic broken link checking and fixing</label>';
-    echo '<p class="description">When enabled, the plugin will automatically check for and fix broken links when posts are saved.</p>';
+    echo '<p class="description">When enabled, the plugin will automatically check for and fix broken links when posts are saved also fix broken links for pages.</p>';
 }
 
-function smart_ai_linker_enable_page_to_page_field_callback() {
+function smart_ai_linker_enable_page_to_page_field_callback()
+{
     $enabled = get_option('smart_ai_linker_enable_page_to_page', '1');
     echo "<label><input type='checkbox' name='smart_ai_linker_enable_page_to_page' value='1' " . checked('1', $enabled, false) . '> Enable linking between pages</label>';
     echo '<p class="description">When enabled, the plugin will suggest and create links between pages as well as posts.</p>';
 }
 
-function smart_ai_linker_excluded_posts_field_callback() {
+function smart_ai_linker_excluded_posts_field_callback()
+{
     $excluded = get_option('smart_ai_linker_excluded_posts', []);
-    if (!is_array($excluded)) $excluded = [];
+    if (!is_array($excluded))
+        $excluded = [];
     $args = array(
         'post_type' => array('post', 'page'),
         'posts_per_page' => 100,
