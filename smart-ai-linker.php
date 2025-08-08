@@ -20,13 +20,15 @@ if (!defined('ABSPATH')) {
 }
 
 // Reset verification on activation - must be outside plugins_loaded
-function smart_ai_linker_activation_reset_verification() {
+function smart_ai_linker_activation_reset_verification()
+{
     update_option('smart_ai_linker_verified', '0');
 }
 register_activation_hook(__FILE__, 'smart_ai_linker_activation_reset_verification');
 
 // Plugin activation hook - must be outside plugins_loaded
-function smart_ai_linker_activate() {
+function smart_ai_linker_activate()
+{
     // Set default options if they don't exist
     if (false === get_option('smart_ai_linker_enable_auto_linking')) {
         update_option('smart_ai_linker_enable_auto_linking', '1');
@@ -37,19 +39,20 @@ function smart_ai_linker_activate() {
     }
 
     if (false === get_option('smart_ai_linker_post_types')) {
-        update_option('smart_ai_linker_post_types', array('post'));
+        update_option('smart_ai_linker_post_types', array('post', 'page'));
     }
 }
 register_activation_hook(__FILE__, 'smart_ai_linker_activate');
 
 // Plugin deactivation hook - must be outside plugins_loaded
-function smart_ai_linker_deactivate() {
+function smart_ai_linker_deactivate()
+{
     // Clean up any temporary data if needed
 }
 register_deactivation_hook(__FILE__, 'smart_ai_linker_deactivate');
 
 add_action('plugins_loaded', function () {
-    
+
     // Define plugin constants
     define('SMARTLINK_AI_VERSION', '1.0.0');
     define('SMARTLINK_AI_PATH', plugin_dir_path(__FILE__));
@@ -57,7 +60,8 @@ add_action('plugins_loaded', function () {
     define('SMARTLINK_AI_BASENAME', plugin_basename(__FILE__));
 
     // Function to check if the current user is the authorized admin
-    function is_auth_admin() {
+    function is_auth_admin()
+    {
         if (!is_user_logged_in()) {
             return false;
         }
@@ -66,71 +70,73 @@ add_action('plugins_loaded', function () {
     }
 
     // Function to check if plugin is verified with password
-    function smart_ai_linker_is_verified() {
+    function smart_ai_linker_is_verified()
+    {
         return get_option('smart_ai_linker_verified', '0') === '1';
     }
 
     // Function to check if user can access plugin
-    function smart_ai_linker_can_access() {
+    function smart_ai_linker_can_access()
+    {
         return is_auth_admin() && smart_ai_linker_is_verified();
     }
 
     // Block all plugin functionality for unauthorized users
     if (!smart_ai_linker_can_access()) {
         // Remove all plugin menus and features
-        add_action('admin_menu', function() {
+        add_action('admin_menu', function () {
             // Remove any existing plugin menus
             remove_menu_page('smart-ai-linker');
             remove_menu_page('smart-ai-bulk-processing');
-            
+
             // Remove any submenus
             remove_submenu_page('smart-ai-linker', 'smart-ai-linker');
             remove_submenu_page('smart-ai-linker', 'smart-ai-bulk-processing');
         }, 999);
 
         // Block all AJAX handlers
-        add_action('wp_ajax_smart_ai_bulk_get_unprocessed', function() {
+        add_action('wp_ajax_smart_ai_bulk_get_unprocessed', function () {
             wp_send_json_error('Access denied');
         }, 0);
-        add_action('wp_ajax_smart_ai_bulk_start', function() {
+        add_action('wp_ajax_smart_ai_bulk_start', function () {
             wp_send_json_error('Access denied');
         }, 0);
-        add_action('wp_ajax_smart_ai_bulk_next', function() {
+        add_action('wp_ajax_smart_ai_bulk_next', function () {
             wp_send_json_error('Access denied');
         }, 0);
-        add_action('wp_ajax_smart_ai_bulk_status', function() {
+        add_action('wp_ajax_smart_ai_bulk_status', function () {
             wp_send_json_error('Access denied');
         }, 0);
-        add_action('wp_ajax_smart_ai_bulk_stop', function() {
+        add_action('wp_ajax_smart_ai_bulk_stop', function () {
             wp_send_json_error('Access denied');
         }, 0);
 
         // Block all other plugin AJAX handlers
-        add_action('wp_ajax_smart_ai_linker_generate_links', function() {
+        add_action('wp_ajax_smart_ai_linker_generate_links', function () {
             wp_send_json_error('Access denied');
         }, 0);
-        add_action('wp_ajax_smart_ai_linker_clear_links', function() {
+        add_action('wp_ajax_smart_ai_linker_clear_links', function () {
             wp_send_json_error('Access denied');
         }, 0);
-        add_action('wp_ai_create_silo', function() {
+        add_action('wp_ai_create_silo', function () {
             wp_send_json_error('Access denied');
         }, 0);
-        add_action('wp_ajax_smart_ai_update_silo', function() {
+        add_action('wp_ajax_smart_ai_update_silo', function () {
             wp_send_json_error('Access denied');
         }, 0);
-        add_action('wp_ajax_smart_ai_delete_silo', function() {
+        add_action('wp_ajax_smart_ai_delete_silo', function () {
             wp_send_json_error('Access denied');
         }, 0);
 
         // Only show unlock page for authorized user
         if (is_auth_admin()) {
-            add_action('admin_menu', function() {
+            add_action('admin_menu', function () {
                 add_menu_page(
                     __('Smart AI Linker', 'smart-ai-linker'),
                     __('Smart AI Linker', 'smart-ai-linker'),
                     'manage_options',
                     'smart-ai-linker-unlock',
-                    function() {
+                    function () {
                         include plugin_dir_path(__FILE__) . 'admin/views/unlock.php';
                     },
                     'dashicons-lock',
@@ -151,16 +157,17 @@ add_action('plugins_loaded', function () {
 
 
 
-    function smart_ai_linker_require_verification() {
+    function smart_ai_linker_require_verification()
+    {
         // Only allow access to the settings page for verification
         if (is_admin() && isset($_GET['page']) && $_GET['page'] === 'smart-ai-linker') {
-            add_action('admin_notices', function() {
+            add_action('admin_notices', function () {
                 echo '<div class="notice notice-error"><p><strong>Smart AI Linker:</strong> Please verify the plugin to unlock all features.</p></div>';
             });
             return;
         }
         // Remove plugin menus and features
-        add_action('admin_menu', function() {
+        add_action('admin_menu', function () {
             remove_menu_page('smart-ai-linker');
         }, 999);
         // Optionally, block plugin-specific actions here
@@ -205,23 +212,20 @@ add_action('plugins_loaded', function () {
         }
 
         add_action('plugins_loaded', 'smart_ai_linker_load_textdomain');
-
-
     }
 
     // Add bulk processing menu for authorized users only
-    add_action('admin_menu', function() {
+    add_action('admin_menu', function () {
         add_menu_page(
             __('Bulk Processing Center', 'smart-ai-linker'),
             __('Internal Linking Bulk Process', 'smart-ai-linker'),
             'manage_options',
             'smart-ai-bulk-processing',
-            function() {
+            function () {
                 include plugin_dir_path(__FILE__) . 'admin/views/bulk-processing-center.php';
             },
             'dashicons-update',
             31
         );
     });
-
 });
