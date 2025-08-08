@@ -8,7 +8,7 @@
             <span id="total-posts">0</span>
         </div>
         <div class="stat-card">
-            <h3><?php _e('Processed', 'smart-ai-linker'); ?></h3>
+            <h3><?php _e('Processed', 'smart-ai-linker'); ?></h3>Processed: 0 | Skipped: 0 | Errors: 0
             <span id="processed-posts">0</span>
         </div>
         <div class="stat-card">
@@ -39,7 +39,19 @@
         <div class="control-group">
             <button id="bulk-center-start" class="button button-primary" disabled><?php _e('Start Processing', 'smart-ai-linker'); ?></button>
             <button id="bulk-center-stop" class="button button-secondary" style="display:none;"><?php _e('Stop Processing', 'smart-ai-linker'); ?></button>
+            <button id="bulk-center-resume" class="button button-primary" style="display:none;"><?php _e('Resume Processing', 'smart-ai-linker'); ?></button>
             <button id="bulk-center-reset" class="button"><?php _e('Reset Progress', 'smart-ai-linker'); ?></button>
+        </div>
+        
+        <div id="processing-status" class="processing-status" style="display:none;">
+            <div class="status-indicator">
+                <span class="spinner is-active"></span>
+                <span class="status-text">Processing...</span>
+            </div>
+            <div class="status-details">
+                <span id="current-processing-post-type"></span>
+                <span id="processing-time"></span>
+            </div>
         </div>
     </div>
 
@@ -117,6 +129,35 @@
         
         .control-group:last-child {
             margin-bottom: 0;
+        }
+        
+        .processing-status {
+            background: #f0f8ff;
+            border: 1px solid #0073aa;
+            border-radius: 4px;
+            padding: 10px 15px;
+            margin-top: 10px;
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 5px;
+        }
+        
+        .status-text {
+            font-weight: bold;
+            color: #0073aa;
+        }
+        
+        .status-details {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .status-details span {
+            margin-right: 15px;
         }
         
         .smart-ai-progress-container {
@@ -267,6 +308,11 @@
             opacity: 0.6;
             pointer-events: none;
         }
+        
+        .disabled-control {
+            opacity: 0.5;
+            pointer-events: none;
+        }
     </style>
 
     <script>
@@ -276,6 +322,7 @@
     let polling = null;
     let isProcessing = false;
     let currentProgress = { total: 0, processed: 0, skipped: 0, errors: [] };
+    let processingStartTime = null;
 
     function updateStats() {
         $('#total-posts').text(currentProgress.total);
@@ -298,10 +345,22 @@
             
             // Add verification indicator for processed posts
             let verificationIcon = '';
+            let linkCount = '';
             if (status === 'processed') {
                 verificationIcon = ' <span style="color: #46b450; font-size: 12px;">✓</span>';
+                // Get actual link count for processed posts
+                $.post(ajaxurl, {
+                    action: 'smart_ai_bulk_get_link_count',
+                    post_id: post.id
+                }, function(response) {
+                    if (response.success && response.data.link_count > 0) {
+                        $(`.post-item[data-id="${post.id}"] .post-status`).append(` <span style="color: #46b450; font-size: 10px;">(${response.data.link_count} links)</span>`);
+                    }
+                });
             } else if (status === 'error') {
                 verificationIcon = ' <span style="color: #dc3232; font-size: 12px;">⚠</span>';
+            } else if (status === 'skipped') {
+                verificationIcon = ' <span style="color: #ffb900; font-size: 12px;">⏭</span>';
             }
             
             html += `
@@ -342,11 +401,30 @@
         if (isProcessing) {
             $('#bulk-center-start').prop('disabled', true).hide();
             $('#bulk-center-stop').show();
+            $('#bulk-center-resume').hide(); // Hide resume by default, will be shown if stuck
             $('#progress-container').show();
+            $('#processing-status').show();
         } else {
             $('#bulk-center-start').prop('disabled', postList.length === 0).show();
             $('#bulk-center-stop').hide();
+            $('#bulk-center-resume').hide();
             $('#progress-container').hide();
+            $('#processing-status').hide();
+        }
+    }
+
+    function updateProcessingStatus(processingInfo) {
+        if (processingInfo && processingInfo.post_type) {
+            $('#current-processing-post-type').text(`Processing: ${processingInfo.post_type}`);
+            
+            if (processingInfo.started_at) {
+                let startTime = new Date(processingInfo.started_at);
+                let now = new Date();
+                let diff = Math.floor((now - startTime) / 1000);
+                let minutes = Math.floor(diff / 60);
+                let seconds = diff % 60;
+                $('#processing-time').text(`Duration: ${minutes}m ${seconds}s`);
+            }
         }
     }
 
@@ -360,11 +438,132 @@
         $('#error-list').empty();
     }
 
+    // On page load, initialize the interface
+    $(function(){
+        updateButtonStates();
+        updateStats();
+        
+        // Check for running process and post type locking
+        checkProcessingStatus();
+        
+        // Set up periodic status checks
+        setInterval(checkProcessingStatus, 10000); // Check every 10 seconds
+    });
+
+    // Enhanced function to check and resume processing
+    function checkProcessingStatus() {
+        $.post(ajaxurl, {action:'smart_ai_bulk_get_processing_status'}, function(response){
+            if(response.success) {
+                if(response.data.is_processing) {
+                    // Another process is running
+                    let currentProcessing = response.data.current_processing;
+                    let progress = response.data.progress;
+                    let isStuck = response.data.is_stuck;
+                    let queueCount = response.data.queue_count;
+                    
+                    console.log('Found running process:', currentProcessing);
+                    console.log('Progress:', progress);
+                    console.log('Is stuck:', isStuck);
+                    console.log('Queue count:', queueCount);
+                    
+                    // Set the post type to match the running process
+                    if (currentProcessing.post_type) {
+                        $('#bulk-center-post-type').val(currentProcessing.post_type);
+                        postType = currentProcessing.post_type;
+                    }
+                    
+                    // Update the interface to show processing state
+                    isProcessing = true;
+                    updateButtonStates();
+                    updateProcessingStatus(currentProcessing);
+                    
+                    if (progress) {
+                        updateProgressDetails(progress);
+                        
+                        // Check if processing is stuck
+                        if (isStuck) {
+                            console.log('Processing appears to be stuck, showing resume option');
+                            $('#bulk-center-resume').show();
+                            $('#bulk-center-stop').hide();
+                            showError('Processing appears to be stuck. Click "Resume Processing" to continue.');
+                        } else if (queueCount > 0) {
+                            // If we have progress but no queue, try to resume processing
+                            if (progress.total > 0 && (progress.processed + progress.skipped) < progress.total) {
+                                console.log('Attempting to resume processing...');
+                                resumeProcessing();
+                            }
+                        }
+                    }
+                    
+                    // Start polling for updates
+                    if (!polling) {
+                        polling = setInterval(pollStatus, 2000);
+                    }
+                } else {
+                    // No process running
+                    isProcessing = false;
+                    updateButtonStates();
+                    if (polling) {
+                        clearInterval(polling);
+                        polling = null;
+                    }
+                }
+            }
+        }).fail(function() {
+            console.log('Status check failed');
+        });
+    }
+
+    // New function to resume processing
+    function resumeProcessing() {
+        console.log('Resuming processing...');
+        
+        // Start the processing loop
+        if (!polling) {
+            polling = setInterval(function(){
+                $.post(ajaxurl, {action:'smart_ai_bulk_next'}, function(nextResp){
+                    if(nextResp.success) {
+                        // Update progress immediately
+                        if (nextResp.data.progress) {
+                            updateProgressDetails(nextResp.data.progress);
+                        }
+                        
+                        if(nextResp.data.done) {
+                            clearInterval(polling);
+                            isProcessing = false;
+                            updateButtonStates();
+                            alert('Bulk processing completed!');
+                        } else {
+                            // Update current post info if available
+                            if (nextResp.data.current_post) {
+                                $('#current-post').text(nextResp.data.current_post);
+                            }
+                        }
+                    } else {
+                        console.log('Processing error:', nextResp.data);
+                        clearInterval(polling);
+                        isProcessing = false;
+                        updateButtonStates();
+                        showError('Processing error: ' + (nextResp.data || 'Unknown error'));
+                    }
+                }).fail(function() {
+                    console.log('Processing request failed');
+                    clearInterval(polling);
+                    isProcessing = false;
+                    updateButtonStates();
+                    showError('Processing failed. Please try again.');
+                });
+            }, 2000);
+        }
+    }
+
+    // Enhanced poll status function
     function pollStatus() {
         $.post(ajaxurl, {action:'smart_ai_bulk_status'}, function(response){
             if(response.success) {
                 // Update progress with verified data
                 updateProgressDetails(response.data.progress);
+                updateProcessingStatus(response.data.current_processing);
                 
                 if(response.data.running) {
                     isProcessing = true;
@@ -383,6 +582,7 @@
         });
     }
 
+    // Enhanced load unprocessed posts function
     function loadUnprocessedPosts() {
         postType = $('#bulk-center-post-type').val();
         $('#bulk-center-list-container').html('<div class="empty-state"><p>Loading...</p></div>');
@@ -397,9 +597,14 @@
                 renderList();
                 updateButtonStates();
                 clearErrors();
-            } else {
+            } else if (response.success && response.data.length === 0) {
                 postList = [];
                 $('#bulk-center-list-container').html('<div class="empty-state"><p>No unprocessed posts found.</p></div>');
+                updateButtonStates();
+            } else {
+                // Handle error response
+                showError(response.data || 'Failed to load posts');
+                postList = [];
                 updateButtonStates();
             }
         }).fail(function() {
@@ -408,32 +613,60 @@
         });
     }
 
-    $('#bulk-center-load-posts').on('click', function() {
-        loadUnprocessedPosts();
-    });
-
+    // Enhanced post type change handler
     $('#bulk-center-post-type').on('change', function() {
-        // Reset state when post type changes
-        postList = [];
-        isProcessing = false;
-        currentProgress = { total: 0, processed: 0, skipped: 0, errors: [] };
-        if (polling) {
-            clearInterval(polling);
-            polling = null;
-        }
-        renderList();
-        updateButtonStates();
-        clearErrors();
-        updateStats();
-        $('#progress-container').hide();
+        // Check if this post type is currently being processed
+        $.post(ajaxurl, {action:'smart_ai_bulk_get_processing_status'}, function(response){
+            if(response.success && response.data.is_processing) {
+                let currentProcessing = response.data.current_processing;
+                if (currentProcessing.post_type === $('#bulk-center-post-type').val()) {
+                    // This post type is being processed, show current status
+                    isProcessing = true;
+                    updateProcessingStatus(currentProcessing);
+                    if (response.data.progress) {
+                        updateProgressDetails(response.data.progress);
+                    }
+                    updateButtonStates();
+                    
+                    // Start polling
+                    if (!polling) {
+                        polling = setInterval(pollStatus, 2000);
+                    }
+                } else {
+                    // Another post type is being processed
+                    showError(`Another post type (${currentProcessing.post_type}) is currently being processed. Please wait for it to complete.`);
+                    $('#bulk-center-post-type').addClass('disabled-control');
+                    $('#bulk-center-load-posts').addClass('disabled-control');
+                }
+            } else {
+                // No processing happening, reset state
+                $('#bulk-center-post-type').removeClass('disabled-control');
+                $('#bulk-center-load-posts').removeClass('disabled-control');
+                postList = [];
+                isProcessing = false;
+                currentProgress = { total: 0, processed: 0, skipped: 0, errors: [] };
+                if (polling) {
+                    clearInterval(polling);
+                    polling = null;
+                }
+                renderList();
+                updateButtonStates();
+                clearErrors();
+                updateStats();
+                $('#progress-container').hide();
+                $('#processing-status').hide();
+            }
+        });
     });
 
+    // Enhanced start processing function
     $('#bulk-center-start').on('click', function() {
         if (!postList.length || isProcessing) return;
         
         isProcessing = true;
         updateButtonStates();
         clearErrors();
+        processingStartTime = new Date();
         
         // Start processing
         $.post(ajaxurl, {action:'smart_ai_bulk_start', post_type:postType}, function(response){
@@ -488,6 +721,7 @@
         });
     });
 
+    // Enhanced stop processing function
     $('#bulk-center-stop').on('click', function() {
         if (polling) {
             clearInterval(polling);
@@ -509,6 +743,7 @@
         });
     });
 
+    // Enhanced reset function
     $('#bulk-center-reset').on('click', function() {
         if (confirm('This will reset all progress and start fresh. Continue?')) {
             if (polling) {
@@ -524,10 +759,13 @@
                 clearErrors();
                 renderList();
                 $('#progress-container').hide();
+                $('#processing-status').hide();
                 $('.progress-fill').css('width', '0%');
                 $('.progress-text').text('0%');
                 $('#current-status').text('Ready to start...');
                 $('#current-post').text('-');
+                $('#bulk-center-post-type').removeClass('disabled-control');
+                $('#bulk-center-load-posts').removeClass('disabled-control');
             }).fail(function() {
                 // Even if the stop request fails, reset the UI
                 isProcessing = false;
@@ -537,71 +775,84 @@
                 clearErrors();
                 renderList();
                 $('#progress-container').hide();
+                $('#processing-status').hide();
                 $('.progress-fill').css('width', '0%');
                 $('.progress-text').text('0%');
                 $('#current-status').text('Ready to start...');
                 $('#current-post').text('-');
+                $('#bulk-center-post-type').removeClass('disabled-control');
+                $('#bulk-center-load-posts').removeClass('disabled-control');
             });
         }
     });
 
-    // Add refresh status button for debugging
-    $('#bulk-center-load-posts').after('<button id="refresh-status" class="button" style="margin-left: 10px;">Refresh Status</button>');
-    
-    $('#refresh-status').on('click', function() {
-        $.post(ajaxurl, {action:'smart_ai_bulk_status'}, function(response){
-            if(response.success) {
-                updateProgressDetails(response.data.progress);
-                console.log('Status refreshed:', response.data.progress);
-            }
-        });
+    // Add the load posts button handler
+    $('#bulk-center-load-posts').on('click', function() {
+        loadUnprocessedPosts();
     });
 
-    // On page load, initialize the interface
-    $(function(){
-        updateButtonStates();
-        updateStats();
-        
-        // Check for running process - but don't assume it's running
-        $.post(ajaxurl, {action:'smart_ai_bulk_status'}, function(resp) {
-            if (resp.success && resp.data.running && resp.data.progress.total > 0) {
-                isProcessing = true;
-                updateProgressDetails(resp.data.progress);
-                updateButtonStates();
-                
-                // Start polling for updates
-                polling = setInterval(function(){
-                    $.post(ajaxurl, {action:'smart_ai_bulk_status'}, function(statusResp){
-                        if(statusResp.success) {
-                            updateProgressDetails(statusResp.data.progress);
-                            if(!statusResp.data.running) {
-                                clearInterval(polling);
-                                isProcessing = false;
-                                updateButtonStates();
-                                if (statusResp.data.progress.processed > 0) {
-                                    alert('Bulk processing completed!');
-                                }
-                            }
+    // Add resume processing handler
+    $('#bulk-center-resume').on('click', function() {
+        if (confirm('Resume processing from where it left off?')) {
+            $.post(ajaxurl, {action:'smart_ai_bulk_force_resume'}, function(response){
+                if(response.success) {
+                    if(response.data.resumed) {
+                        console.log('Processing resumed successfully');
+                        showError('Processing resumed successfully. Processing will continue...');
+                        
+                        // Start the processing loop
+                        if (!polling) {
+                            polling = setInterval(function(){
+                                $.post(ajaxurl, {action:'smart_ai_bulk_next'}, function(nextResp){
+                                    if(nextResp.success) {
+                                        // Update progress immediately
+                                        if (nextResp.data.progress) {
+                                            updateProgressDetails(nextResp.data.progress);
+                                        }
+                                        
+                                        if(nextResp.data.done) {
+                                            clearInterval(polling);
+                                            isProcessing = false;
+                                            updateButtonStates();
+                                            alert('Bulk processing completed!');
+                                        } else {
+                                            // Update current post info if available
+                                            if (nextResp.data.current_post) {
+                                                $('#current-post').text(nextResp.data.current_post);
+                                            }
+                                        }
+                                    } else {
+                                        console.log('Processing error:', nextResp.data);
+                                        clearInterval(polling);
+                                        isProcessing = false;
+                                        updateButtonStates();
+                                        showError('Processing error: ' + (nextResp.data || 'Unknown error'));
+                                    }
+                                }).fail(function() {
+                                    console.log('Processing request failed');
+                                    clearInterval(polling);
+                                    isProcessing = false;
+                                    updateButtonStates();
+                                    showError('Processing failed. Please try again.');
+                                });
+                            }, 2000);
                         }
-                    });
-                }, 2000);
-            } else {
-                // No running process, ensure clean state
-                isProcessing = false;
-                currentProgress = { total: 0, processed: 0, skipped: 0, errors: [] };
-                updateButtonStates();
-                updateStats();
-                $('#progress-container').hide();
-            }
-        }).fail(function() {
-            // If status check fails, assume no running process
-            isProcessing = false;
-            currentProgress = { total: 0, processed: 0, skipped: 0, errors: [] };
-            updateButtonStates();
-            updateStats();
-            $('#progress-container').hide();
-        });
+                    } else if(response.data.done) {
+                        alert('All posts have already been processed!');
+                        // Clean up the interface
+                        isProcessing = false;
+                        updateButtonStates();
+                        clearErrors();
+                    }
+                } else {
+                    showError('Failed to resume processing: ' + (response.data || 'Unknown error'));
+                }
+            }).fail(function() {
+                showError('Failed to resume processing. Please try again.');
+            });
+        }
     });
 })(jQuery);
 </script>
+</div>
 </div>

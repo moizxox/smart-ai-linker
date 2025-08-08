@@ -275,20 +275,26 @@ function smart_ai_linker_generate_internal_links($post_ID, $post = null, $update
  * @return bool|WP_Error True on success, false or WP_Error on failure
  */
 function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
+    error_log("[Smart AI] Starting link insertion for post ID: {$post_ID}");
+    
     if (empty($links) || !is_array($links)) {
         $error_msg = 'No valid links provided for insertion';
         error_log('[Smart AI] ' . $error_msg);
         return new WP_Error('no_links', $error_msg);
     }
 
+    error_log("[Smart AI] Processing " . count($links) . " links for post {$post_ID}");
+
     $post = get_post($post_ID);
     $source_type = $post ? $post->post_type : 'post';
     if (!$post) {
+        error_log("[Smart AI] Post {$post_ID} not found");
         return false;
     }
 
     $content = $post->post_content;
     if (empty($content)) {
+        error_log("[Smart AI] Post {$post_ID} has empty content");
         return false;
     }
 
@@ -300,12 +306,17 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
     // Wrap content in a div and handle potential HTML issues
     $wrapped_content = '<div>' . $content . '</div>';
     
-    // Load HTML with error suppression
-    $dom->loadHTML($encoding . $wrapped_content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-    $xpath = new DOMXPath($dom);
-    
-    // Clear any libxml errors
-    libxml_clear_errors();
+    try {
+        // Load HTML with error suppression
+        $dom->loadHTML($encoding . $wrapped_content, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        $xpath = new DOMXPath($dom);
+        
+        // Clear any libxml errors
+        libxml_clear_errors();
+    } catch (Exception $e) {
+        error_log("[Smart AI] Error loading HTML for post {$post_ID}: " . $e->getMessage());
+        return false;
+    }
 
     $used_anchors = [];
     $used_urls = [];
@@ -315,21 +326,38 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
     $max_links = $option_max;
 
     $inserted_links = [];
+    
+    error_log("[Smart AI] Processing " . count($links) . " links for post {$post_ID}, max links: {$max_links}");
+    
     foreach ($links as $link) {
-        if ($links_added >= $max_links) break;
+        if ($links_added >= $max_links) {
+            error_log("[Smart AI] Reached max links limit for post {$post_ID}");
+            break;
+        }
+        
         $anchor = is_array($link) ? ($link['anchor'] ?? '') : ($link->anchor ?? '');
         $url = is_array($link) ? ($link['url'] ?? '') : ($link->url ?? '');
-        if (empty($anchor) || empty($url)) continue;
+        
+        if (empty($anchor) || empty($url)) {
+            error_log("[Smart AI] Skipping invalid link for post {$post_ID}: anchor='{$anchor}', url='{$url}'");
+            continue;
+        }
+        
+        error_log("[Smart AI] Processing link for post {$post_ID}: anchor='{$anchor}', url='{$url}'");
         
         // If the source is a PAGE, do not link to posts
         if ($source_type === 'page') {
             $target_post_id = url_to_postid($url);
             if ($target_post_id && get_post_type($target_post_id) !== 'page') {
+                error_log("[Smart AI] Skipping post link for page source: {$url}");
                 continue; // skip – violates page→post rule
             }
         }
         
-        if (in_array($anchor, $used_anchors, true) || in_array($url, $used_urls, true)) continue;
+        if (in_array($anchor, $used_anchors, true) || in_array($url, $used_urls, true)) {
+            error_log("[Smart AI] Skipping duplicate link for post {$post_ID}: anchor='{$anchor}', url='{$url}'");
+            continue;
+        }
         
         // Only select text nodes NOT inside <a>, <h1>, or <h2>
         $text_nodes = [];
@@ -345,116 +373,133 @@ function smart_ai_linker_insert_links_into_post($post_ID, $links = []) {
             }
         }
         
-        $inserted = false;
-        // Try exact match first
-        foreach ($text_nodes as $text_node) {
-            $text = $text_node->nodeValue;
-            $pos = mb_stripos($text, $anchor);
-            if ($pos !== false) {
-                $before = mb_substr($text, 0, $pos);
-                $match = mb_substr($text, $pos, mb_strlen($anchor));
-                $after = mb_substr($text, $pos + mb_strlen($anchor));
-                
-                $a = $dom->createElement('a', htmlspecialchars($match, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
-                $a->setAttribute('href', esc_url($url));
-                $a->setAttribute('class', 'smart-ai-link');
-                $a->setAttribute('title', esc_attr($anchor));
-                
-                $parent = $text_node->parentNode;
-                if ($parent !== null) {
-                    if ($before !== '') $parent->insertBefore($dom->createTextNode($before), $text_node);
-                    $parent->insertBefore($a, $text_node);
-                    if ($after !== '') $parent->insertBefore($dom->createTextNode($after), $text_node);
-                    $parent->removeChild($text_node);
-                    
-                    $used_anchors[] = $anchor;
-                    $used_urls[] = $url;
-                    $links_added++;
-                    $inserted_links[] = is_array($link) ? $link : [ 'anchor' => $anchor, 'url' => $url ];
-                    $inserted = true;
-                    break;
-                }
-            }
+        if (empty($text_nodes)) {
+            error_log("[Smart AI] No suitable text nodes found for link insertion in post {$post_ID}");
+            continue;
         }
         
-        // If not inserted, try partial match
-        if (!$inserted) {
-            $anchor_words = preg_split('/\s+/', $anchor);
-            $partial = implode(' ', array_slice($anchor_words, 0, min(3, count($anchor_words))));
+        $inserted = false;
+        
+        // Try multiple matching strategies
+        $matching_strategies = [
+            'exact' => $anchor,
+            'partial' => implode(' ', array_slice(explode(' ', $anchor), 0, 3)), // First 3 words
+            'words' => implode(' ', array_slice(explode(' ', $anchor), 0, 2)), // First 2 words
+            'single' => explode(' ', $anchor)[0] ?? $anchor // First word
+        ];
+        
+        foreach ($matching_strategies as $strategy => $search_term) {
+            if ($inserted) break;
+            
+            error_log("[Smart AI] Trying {$strategy} match for '{$search_term}' in post {$post_ID}");
             
             foreach ($text_nodes as $text_node) {
-                $text = preg_replace('/\s+/', ' ', $text_node->nodeValue);
-                $pos = mb_stripos($text, $partial);
+                if ($inserted) break;
+                
+                $text = $text_node->nodeValue;
+                $pos = mb_stripos($text, $search_term);
+                
                 if ($pos !== false) {
-                    $before = mb_substr($text, 0, $pos);
-                    $match = mb_substr($text, $pos, mb_strlen($partial));
-                    $after = mb_substr($text, $pos + mb_strlen($partial));
-                    
-                    $a = $dom->createElement('a', htmlspecialchars($match, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
-                    $a->setAttribute('href', esc_url($url));
-                    $a->setAttribute('class', 'smart-ai-link');
-                    $a->setAttribute('title', esc_attr($anchor));
-                    
-                    $parent = $text_node->parentNode;
-                    if ($parent !== null) {
-                        if ($before !== '') $parent->insertBefore($dom->createTextNode($before), $text_node);
-                        $parent->insertBefore($a, $text_node);
-                        if ($after !== '') $parent->insertBefore($dom->createTextNode($after), $text_node);
-                        $parent->removeChild($text_node);
+                    try {
+                        $before = mb_substr($text, 0, $pos);
+                        $match = mb_substr($text, $pos, mb_strlen($search_term));
+                        $after = mb_substr($text, $pos + mb_strlen($search_term));
                         
-                        $used_anchors[] = $anchor;
-                        $used_urls[] = $url;
-                        $links_added++;
-                        $inserted_links[] = is_array($link) ? $link : [ 'anchor' => $anchor, 'url' => $url ];
-                        $inserted = true;
-                        break;
+                        $a = $dom->createElement('a', htmlspecialchars($match, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'));
+                        $a->setAttribute('href', esc_url($url));
+                        $a->setAttribute('class', 'smart-ai-link');
+                        $a->setAttribute('title', esc_attr($anchor));
+                        
+                        $parent = $text_node->parentNode;
+                        if ($parent !== null) {
+                            if ($before !== '') $parent->insertBefore($dom->createTextNode($before), $text_node);
+                            $parent->insertBefore($a, $text_node);
+                            if ($after !== '') $parent->insertBefore($dom->createTextNode($after), $text_node);
+                            $parent->removeChild($text_node);
+                            
+                            $used_anchors[] = $anchor;
+                            $used_urls[] = $url;
+                            $links_added++;
+                            $inserted_links[] = is_array($link) ? $link : [ 'anchor' => $anchor, 'url' => $url ];
+                            $inserted = true;
+                            error_log("[Smart AI] Successfully inserted link using {$strategy} match for post {$post_ID}: anchor='{$anchor}', url='{$url}'");
+                            break;
+                        }
+                    } catch (Exception $e) {
+                        error_log("[Smart AI] Error inserting link for post {$post_ID}: " . $e->getMessage());
                     }
                 }
             }
         }
+        
+        if (!$inserted) {
+            error_log("[Smart AI] Could not insert link for post {$post_ID}: anchor='{$anchor}', url='{$url}' after trying all strategies");
+        }
     }
+    
+    error_log("[Smart AI] Inserted {$links_added} links for post {$post_ID} out of " . count($links) . " suggestions");
     
     // Extract the modified content
     $new_content = '';
-    $div_element = $dom->getElementsByTagName('div')->item(0);
-    if ($div_element) {
-        foreach ($div_element->childNodes as $child) {
-            $new_content .= $dom->saveHTML($child);
+    try {
+        $div_element = $dom->getElementsByTagName('div')->item(0);
+        if ($div_element) {
+            foreach ($div_element->childNodes as $child) {
+                $new_content .= $dom->saveHTML($child);
+            }
+        } else {
+            // Fallback if div element is not found
+            $new_content = $content;
         }
-    } else {
-        // Fallback if div element is not found
+    } catch (Exception $e) {
+        error_log("[Smart AI] Error extracting modified content for post {$post_ID}: " . $e->getMessage());
         $new_content = $content;
     }
+    
     libxml_clear_errors();
     
     if ($new_content && $new_content !== $content) {
-        // Deduplicate links: keep only the first occurrence of each URL
-        $seen_urls = [];
-        $new_content = preg_replace_callback('/<a\s+[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)<\/a>/i', function($matches) use (&$seen_urls) {
-            $url = $matches[1];
-            $anchor = $matches[2];
-            if (!in_array($url, $seen_urls)) {
-                $seen_urls[] = $url;
-                return $matches[0]; // keep the first occurrence
+        try {
+            // Deduplicate links: keep only the first occurrence of each URL
+            $seen_urls = [];
+            $new_content = preg_replace_callback('/<a\s+[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)<\/a>/i', function($matches) use (&$seen_urls) {
+                $url = $matches[1];
+                $anchor = $matches[2];
+                if (!in_array($url, $seen_urls)) {
+                    $seen_urls[] = $url;
+                    return $matches[0]; // keep the first occurrence
+                } else {
+                    return $anchor; // remove link, keep anchor text
+                }
+            }, $new_content);
+            
+            global $wpdb;
+            $result = $wpdb->update(
+                $wpdb->posts,
+                array('post_content' => $new_content),
+                array('ID' => $post_ID),
+                array('%s'),
+                array('%d')
+            );
+            
+            if ($result !== false) {
+                clean_post_cache($post_ID);
+                // After updating post content, update post meta with only actually inserted links
+                update_post_meta($post_ID, '_smart_ai_linker_added_links', $inserted_links);
+                error_log("[Smart AI] Successfully updated post {$post_ID} with new content");
+                return true;
             } else {
-                return $anchor; // remove link, keep anchor text
+                error_log("[Smart AI] Failed to update post {$post_ID} in database");
+                return false;
             }
-        }, $new_content);
-        
-        global $wpdb;
-        $result = $wpdb->update(
-            $wpdb->posts,
-            array('post_content' => $new_content),
-            array('ID' => $post_ID),
-            array('%s'),
-            array('%d')
-        );
-        clean_post_cache($post_ID);
-        // After updating post content, update post meta with only actually inserted links
-        update_post_meta($post_ID, '_smart_ai_linker_added_links', $inserted_links);
-        return $result !== false;
+        } catch (Exception $e) {
+            error_log("[Smart AI] Error updating post {$post_ID}: " . $e->getMessage());
+            return false;
+        }
+    } else {
+        error_log("[Smart AI] No content changes for post {$post_ID}");
+        return false;
     }
-    return false;
 }
 
 

@@ -182,21 +182,25 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id, $post_type 
              (count($post_titles) > 50 ? "\n...and " . (count($post_titles) - 50) . " more" : "") . 
              "\n\n" .
              "CRITICAL INSTRUCTIONS:\n" .
-             "1. Analyze the content and suggest 7-10 relevant internal links.\n" .
+             "1. Analyze the content and suggest 10-15 relevant internal links (we need more suggestions to ensure successful insertion).\n" .
              "2. " . ($current_post_type === 'page' ? 'Only link to other PAGES (not posts). ' : 'You may link to both PAGES and POSTS. ') . "\n" .
              "3. Choose anchor text that:\n" .
-             "   - Is 2-4 words long\n" .
+             "   - Is 2-6 words long (preferably 3-4 words)\n" .
              "   - Appears naturally in the content\n" .
-             "   - Is not a proper noun or common phrase\n" .
+             "   - Uses common, descriptive phrases that are likely to be found in the text\n" .
+             "   - Avoids proper nouns, brand names, or very specific technical terms\n" .
              "   - Doesn't contain special characters, quotes, or HTML tags\n" .
+             "   - Uses variations of the same concept (e.g., 'content strategy', 'content marketing', 'digital strategy')\n" .
              "4. Only suggest links that provide clear value to the reader.\n" .
              "5. Never suggest linking the same URL more than once.\n" .
              "6. Ensure the link makes sense in context and adds value.\n" .
-             "7. PRIORITIZE links to posts/pages in the same silo group if provided above.\n";
+             "7. PRIORITIZE links to posts/pages in the same silo group if provided above.\n" .
+             "8. Provide multiple anchor text options for the same concept to increase insertion success.\n";
     if ($current_post_type !== 'page') {
-        $prompt .= "8. Include at least 2 links to PAGES (not posts) if possible.\n";
+        $prompt .= "9. Include at least 3 links to PAGES (not posts) if possible.\n";
     }
-    $prompt .= "9. Include a good mix of both post and page links when relevant.\n\n" .
+    $prompt .= "10. Include a good mix of both post and page links when relevant.\n" .
+             "11. Use common, frequently occurring phrases as anchor text.\n\n" .
              "IMPORTANT: Your response MUST be a valid JSON array of objects. Each object MUST have 'anchor' and 'url' keys.\n" .
              "DO NOT include any text before or after the JSON array.\n" .
              "DO NOT include code block markers (```json or ```).\n" .
@@ -350,6 +354,7 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id, $post_type 
         
         // If JSON parsing failed, try to extract JSON array directly
         if (json_last_error() !== JSON_ERROR_NONE) {
+            error_log('[Smart AI] Initial JSON parse failed: ' . json_last_error_msg());
             // Try to find a JSON array in the response
             if (preg_match('/\[(?:\s*\{.*?\}\s*,?\s*)+\]/s', $ai_response, $matches) && !empty($matches[0])) {
                 $suggestions = json_decode($matches[0], true);
@@ -405,14 +410,28 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id, $post_type 
             }
         }
         
+        // Validate suggestions structure
+        if (!is_array($suggestions)) {
+            error_log('[Smart AI] Suggestions is not an array');
+            return [];
+        }
+        
         // Filter out any suggestions that point to the current post or are empty
         $filtered_suggestions = [];
         $current_post_url = trailingslashit(urldecode(get_permalink($post_id)));
         $current_post_url = strtok($current_post_url, '?#');
         $post_slug = get_post_field('post_name', $post_id);
         
-        foreach ($suggestions as $suggestion) {
+        error_log('[Smart AI] Processing ' . count($suggestions) . ' suggestions for post ' . $post_id);
+        
+        foreach ($suggestions as $index => $suggestion) {
+            if (!is_array($suggestion)) {
+                error_log('[Smart AI] Suggestion ' . $index . ' is not an array: ' . print_r($suggestion, true));
+                continue;
+            }
+            
             if (empty($suggestion['url']) || empty($suggestion['anchor'])) {
+                error_log('[Smart AI] Suggestion ' . $index . ' missing url or anchor: ' . print_r($suggestion, true));
                 continue;
             }
             
@@ -429,6 +448,12 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id, $post_type 
                 continue;
             }
             
+            // Validate URL format
+            if (!filter_var($suggestion_url, FILTER_VALIDATE_URL) && !preg_match('/^\/[^\/]/', $suggestion_url)) {
+                error_log('[Smart AI] Invalid URL format: ' . $suggestion_url);
+                continue;
+            }
+            
             $filtered_suggestions[] = [
                 'anchor' => $suggestion['anchor'],
                 'url' => $suggestion_url
@@ -438,7 +463,10 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id, $post_type 
         error_log('[Smart AI] Successfully parsed ' . count($filtered_suggestions) . ' link suggestions');
         return $filtered_suggestions;
     } else {
-        error_log('[Smart AI] Failed to parse JSON response: ' . json_last_error_msg());
+        error_log('[Smart AI] No valid choices in response data');
+        if (!empty($response_data['error'])) {
+            error_log('[Smart AI] API Error: ' . print_r($response_data['error'], true));
+        }
     }
     
     // Log the response data for debugging if we get here
