@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Bulk Processing for Smart AI Linker
  * 
@@ -12,7 +13,8 @@ if (!defined('ABSPATH')) {
 /**
  * Add bulk action to process multiple posts
  */
-function smart_ai_linker_register_bulk_actions($bulk_actions) {
+function smart_ai_linker_register_bulk_actions($bulk_actions)
+{
     $bulk_actions['smart_ai_linker_generate_links'] = __('Generate AI Links', 'smart-ai-linker');
     return $bulk_actions;
 }
@@ -22,7 +24,8 @@ add_filter('bulk_actions-edit-page', 'smart_ai_linker_register_bulk_actions');
 /**
  * Handle the bulk action with improved error handling and retry logic
  */
-function smart_ai_linker_bulk_action_handler($redirect_to, $doaction, $post_ids) {
+function smart_ai_linker_bulk_action_handler($redirect_to, $doaction, $post_ids)
+{
     if ($doaction !== 'smart_ai_linker_generate_links') {
         return $redirect_to;
     }
@@ -31,7 +34,7 @@ function smart_ai_linker_bulk_action_handler($redirect_to, $doaction, $post_ids)
     $skipped = 0;
     $errors = [];
     $skipped_details = [];
-    
+
     // Include necessary files if not already loaded
     if (!function_exists('smart_ai_linker_get_ai_link_suggestions')) {
         require_once SMARTLINK_AI_PATH . 'api/deepseek-client.php';
@@ -43,13 +46,13 @@ function smart_ai_linker_bulk_action_handler($redirect_to, $doaction, $post_ids)
     // Process posts in batches to avoid timeouts
     $batch_size = 5;
     $total_posts = count($post_ids);
-    
+
     for ($i = 0; $i < $total_posts; $i += $batch_size) {
         $batch = array_slice($post_ids, $i, $batch_size);
-        
+
         foreach ($batch as $post_id) {
             $result = smart_ai_linker_process_single_post($post_id);
-            
+
             switch ($result['status']) {
                 case 'processed':
                     $processed++;
@@ -65,7 +68,7 @@ function smart_ai_linker_bulk_action_handler($redirect_to, $doaction, $post_ids)
                     break;
             }
         }
-        
+
         // Add a small delay between batches to prevent server overload
         if ($i + $batch_size < $total_posts) {
             usleep(1000000); // 1 second delay
@@ -94,11 +97,12 @@ add_filter('handle_bulk_actions-edit-page', 'smart_ai_linker_bulk_action_handler
  * @param int $post_id The post ID to process
  * @return array Status array with 'status' and 'reason' keys
  */
-function smart_ai_linker_process_single_post($post_id) {
+function smart_ai_linker_process_single_post($post_id)
+{
     error_log("[Smart AI] Starting processing for post ID: {$post_id}");
-    
+
     $post = get_post($post_id);
-    
+
     // Skip if post doesn't exist or is not published
     if (!$post || $post->post_status !== 'publish') {
         error_log("[Smart AI] Post {$post_id} skipped: not published or doesn't exist");
@@ -120,7 +124,7 @@ function smart_ai_linker_process_single_post($post_id) {
 
     // Get clean content for AI processing
     $clean_content = wp_strip_all_tags(strip_shortcodes($post->post_content));
-    
+
     // Skip if content is too short
     $word_count = str_word_count($clean_content);
     $min_words = get_option('smart_ai_min_content_length', 30);
@@ -137,7 +141,7 @@ function smart_ai_linker_process_single_post($post_id) {
     if ($last_processed) {
         $last_processed_time = strtotime($last_processed);
         $twenty_four_hours_ago = time() - (24 * 60 * 60);
-        
+
         if ($last_processed_time > $twenty_four_hours_ago) {
             error_log("[Smart AI] Post {$post_id} skipped: already processed within last 24 hours");
             return [
@@ -155,7 +159,9 @@ function smart_ai_linker_process_single_post($post_id) {
             $post_silos = $silo_instance->get_post_silos($post_id);
             if (!empty($post_silos)) {
                 global $wpdb;
-                $silo_ids = array_map(function($silo){ return is_object($silo) ? $silo->id : $silo['id']; }, $post_silos);
+                $silo_ids = array_map(function ($silo) {
+                    return is_object($silo) ? $silo->id : $silo['id'];
+                }, $post_silos);
                 $placeholders = implode(',', array_fill(0, count($silo_ids), '%d'));
                 $query = $wpdb->prepare(
                     "SELECT post_id FROM {$silo_instance->silo_relationships} WHERE silo_id IN ($placeholders) AND post_id != %d",
@@ -173,25 +179,25 @@ function smart_ai_linker_process_single_post($post_id) {
     // Get AI suggestions with retry logic
     $max_retries = 3;
     $suggestions = null;
-    
+
     error_log("[Smart AI] Getting AI suggestions for post {$post_id} (attempt 1)");
-    
+
     for ($attempt = 1; $attempt <= $max_retries; $attempt++) {
         try {
             // Include necessary files if not already loaded
             if (!function_exists('smart_ai_linker_get_ai_link_suggestions')) {
                 require_once SMARTLINK_AI_PATH . 'api/deepseek-client.php';
             }
-            
+
             $suggestions = smart_ai_linker_get_ai_link_suggestions($clean_content, $post_id, $post->post_type, $silo_post_ids);
-            
+
             if (!empty($suggestions) && is_array($suggestions)) {
                 error_log("[Smart AI] Successfully got " . count($suggestions) . " suggestions for post {$post_id}");
                 break; // Success, exit retry loop
             } else {
                 error_log("[Smart AI] Attempt {$attempt} failed for post {$post_id}: empty or invalid suggestions");
             }
-            
+
             if ($attempt < $max_retries) {
                 error_log("[Smart AI] Attempt {$attempt} failed for post {$post_id}, retrying in 2 seconds...");
                 sleep(2); // Wait 2 seconds before retry
@@ -203,7 +209,7 @@ function smart_ai_linker_process_single_post($post_id) {
             }
         }
     }
-    
+
     if (empty($suggestions) || !is_array($suggestions)) {
         error_log("[Smart AI] Failed to get AI suggestions after {$max_retries} attempts for post {$post_id}");
         return [
@@ -217,7 +223,7 @@ function smart_ai_linker_process_single_post($post_id) {
     $option_max = $option_max > 0 ? min(7, $option_max) : 7;
     $max_links = $option_max;
     $suggestions = array_slice($suggestions, 0, $max_links);
-    
+
     error_log("[Smart AI] Processing " . count($suggestions) . " suggestions for post {$post_id}");
 
     // Insert the links with error handling
@@ -226,14 +232,14 @@ function smart_ai_linker_process_single_post($post_id) {
         if (!function_exists('smart_ai_linker_insert_links_into_post')) {
             require_once SMARTLINK_AI_PATH . 'includes/internal-linking.php';
         }
-        
+
         error_log("[Smart AI] Inserting links into post {$post_id}");
         $result = smart_ai_linker_insert_links_into_post($post_id, $suggestions);
-        
+
         if ($result) {
             update_post_meta($post_id, '_smart_ai_linker_processed', current_time('mysql'));
             update_post_meta($post_id, '_smart_ai_linker_added_links', $suggestions);
-            
+
             error_log("[Smart AI] Successfully processed post {$post_id} with " . count($suggestions) . " links");
             return [
                 'status' => 'processed',
@@ -258,23 +264,24 @@ function smart_ai_linker_process_single_post($post_id) {
 /**
  * Show admin notice after bulk processing with improved messaging
  */
-function smart_ai_linker_bulk_admin_notice() {
+function smart_ai_linker_bulk_admin_notice()
+{
     if (!empty($_REQUEST['smart_ai_links_processed']) || !empty($_REQUEST['smart_ai_links_skipped'])) {
         $processed = isset($_REQUEST['smart_ai_links_processed']) ? intval($_REQUEST['smart_ai_links_processed']) : 0;
         $skipped = isset($_REQUEST['smart_ai_links_skipped']) ? intval($_REQUEST['smart_ai_links_skipped']) : 0;
         $errors = [];
         $skipped_details = [];
-        
+
         if (!empty($_REQUEST['smart_ai_links_errors'])) {
             $errors = json_decode(urldecode($_REQUEST['smart_ai_links_errors']), true);
         }
         if (!empty($_REQUEST['smart_ai_links_skipped_details'])) {
             $skipped_details = json_decode(urldecode($_REQUEST['smart_ai_links_skipped_details']), true);
         }
-        
+
         $message = '';
         $notice_class = 'notice-info';
-        
+
         if ($processed > 0) {
             $message .= sprintf(
                 _n('%d post was successfully processed with AI links.', '%d posts were successfully processed with AI links.', $processed, 'smart-ai-linker'),
@@ -283,14 +290,14 @@ function smart_ai_linker_bulk_admin_notice() {
             $message .= ' ';
             $notice_class = 'notice-success';
         }
-        
+
         if ($skipped > 0) {
             $message .= sprintf(
                 _n('%d post was skipped.', '%d posts were skipped.', $skipped, 'smart-ai-linker'),
                 $skipped
             );
         }
-        
+
         if (!empty($errors)) {
             $message .= '<br><strong>Errors encountered:</strong><ul style="margin:8px 0 0 20px;">';
             foreach (array_slice($errors, 0, 5) as $error) {
@@ -302,18 +309,18 @@ function smart_ai_linker_bulk_admin_notice() {
             $message .= '</ul>';
             $notice_class = 'notice-warning';
         }
-        
-            if (!empty($skipped_details)) {
+
+        if (!empty($skipped_details)) {
             $message .= '<br><strong>Skipped posts:</strong><ul style="margin:8px 0 0 20px;">';
             foreach (array_slice($skipped_details, 0, 5) as $detail) {
-                    $message .= '<li>' . esc_html($detail) . '</li>';
-                }
+                $message .= '<li>' . esc_html($detail) . '</li>';
+            }
             if (count($skipped_details) > 5) {
                 $message .= '<li>... and ' . (count($skipped_details) - 5) . ' more skipped posts</li>';
             }
             $message .= '</ul>';
         }
-        
+
         if (!empty($message)) {
             echo '<div class="notice ' . $notice_class . ' is-dismissible"><p>' . $message . '</p></div>';
         }
@@ -324,19 +331,20 @@ add_action('admin_notices', 'smart_ai_linker_bulk_admin_notice');
 /**
  * AJAX handler for processing all unprocessed posts with improved strategy
  */
-function smart_ai_linker_process_all_ajax() {
+function smart_ai_linker_process_all_ajax()
+{
     // Verify nonce
     if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'smart_ai_linker_process_all')) {
         wp_send_json_error(__('Security check failed.', 'smart-ai-linker'));
     }
-    
+
     // Check user capabilities
     if (!current_user_can('edit_posts')) {
         wp_send_json_error(__('You do not have sufficient permissions.', 'smart-ai-linker'));
     }
-    
+
     $post_type = isset($_POST['post_type']) ? sanitize_text_field($_POST['post_type']) : 'post';
-    
+
     // Get all unprocessed posts with better filtering
     $args = array(
         'post_type' => $post_type,
@@ -358,12 +366,12 @@ function smart_ai_linker_process_all_ajax() {
         'orderby' => 'date',
         'order' => 'DESC', // Process newer posts first
     );
-    
+
     $unprocessed_posts = get_posts($args);
     $processed = 0;
     $skipped = 0;
     $errors = array();
-    
+
     // Include necessary files if not already loaded
     if (!function_exists('smart_ai_linker_get_ai_link_suggestions')) {
         require_once SMARTLINK_AI_PATH . 'api/deepseek-client.php';
@@ -371,17 +379,17 @@ function smart_ai_linker_process_all_ajax() {
     if (!function_exists('smart_ai_linker_insert_links_into_post')) {
         require_once SMARTLINK_AI_PATH . 'includes/internal-linking.php';
     }
-    
+
     // Process posts in smaller batches
     $batch_size = 3;
     $total_posts = count($unprocessed_posts);
-    
+
     for ($i = 0; $i < $total_posts; $i += $batch_size) {
         $batch = array_slice($unprocessed_posts, $i, $batch_size);
-        
+
         foreach ($batch as $post_id) {
             $result = smart_ai_linker_process_single_post($post_id);
-            
+
             switch ($result['status']) {
                 case 'processed':
                     $processed++;
@@ -395,13 +403,13 @@ function smart_ai_linker_process_all_ajax() {
                     break;
             }
         }
-        
+
         // Add delay between batches
         if ($i + $batch_size < $total_posts) {
             usleep(1500000); // 1.5 second delay
         }
     }
-    
+
     // Prepare response
     $response = array(
         'processed' => $processed,
@@ -409,7 +417,7 @@ function smart_ai_linker_process_all_ajax() {
         'total' => count($unprocessed_posts),
         'errors' => array_slice($errors, 0, 10), // Limit error messages
     );
-    
+
     wp_send_json_success($response);
 }
 add_action('wp_ajax_smart_ai_linker_process_all', 'smart_ai_linker_process_all_ajax');
@@ -417,21 +425,22 @@ add_action('wp_ajax_smart_ai_linker_process_all', 'smart_ai_linker_process_all_a
 // --- Enhanced Background Bulk Processing with Progress Tracking and Post Type Locking ---
 
 // Add cleanup function for stuck processes
-function smart_ai_linker_cleanup_stuck_processes() {
+function smart_ai_linker_cleanup_stuck_processes()
+{
     $current_processing = get_option('smart_ai_linker_current_processing', []);
     $progress = get_option('smart_ai_linker_bulk_progress', []);
-    
+
     if (!empty($current_processing) && !empty($progress)) {
         // Check if processing has been stuck for more than 30 minutes
         $last_updated = isset($progress['last_updated']) ? strtotime($progress['last_updated']) : 0;
         $thirty_minutes_ago = time() - (30 * 60);
-        
+
         if ($last_updated < $thirty_minutes_ago) {
             // Process is stuck, clean it up
             delete_option('smart_ai_linker_current_processing');
             delete_option('smart_ai_linker_bulk_queue');
             delete_option('smart_ai_linker_bulk_progress');
-            
+
             error_log('[Smart AI Linker] Cleaned up stuck bulk processing process');
         }
     }
@@ -440,19 +449,19 @@ function smart_ai_linker_cleanup_stuck_processes() {
 // Run cleanup on admin init
 add_action('admin_init', 'smart_ai_linker_cleanup_stuck_processes');
 
-add_action('wp_ajax_smart_ai_bulk_get_unprocessed', function() {
+add_action('wp_ajax_smart_ai_bulk_get_unprocessed', function () {
     if (!current_user_can('edit_posts')) {
         wp_send_json_error('Insufficient permissions');
     }
-    
+
     $post_type = isset($_POST['post_type']) ? sanitize_text_field($_POST['post_type']) : 'post';
-    
+
     // Check if another post type is currently being processed
     $current_processing = get_option('smart_ai_linker_current_processing', []);
     if (!empty($current_processing) && $current_processing['post_type'] !== $post_type) {
         wp_send_json_error('Another post type (' . $current_processing['post_type'] . ') is currently being processed. Please wait for it to complete.');
     }
-    
+
     $args = array(
         'post_type' => $post_type,
         'post_status' => 'publish',
@@ -466,10 +475,10 @@ add_action('wp_ajax_smart_ai_bulk_get_unprocessed', function() {
         'orderby' => 'date',
         'order' => 'DESC',
     );
-    
+
     $unprocessed = get_posts($args);
     $posts_data = [];
-    
+
     foreach ($unprocessed as $post_id) {
         $post = get_post($post_id);
         if ($post) {
@@ -480,23 +489,23 @@ add_action('wp_ajax_smart_ai_bulk_get_unprocessed', function() {
             ];
         }
     }
-    
+
     wp_send_json_success($posts_data);
 });
 
-add_action('wp_ajax_smart_ai_bulk_start', function() {
+add_action('wp_ajax_smart_ai_bulk_start', function () {
     if (!current_user_can('edit_posts')) {
         wp_send_json_error('Insufficient permissions');
     }
-    
+
     $post_type = isset($_POST['post_type']) ? sanitize_text_field($_POST['post_type']) : 'post';
-    
+
     // Check if another post type is currently being processed
     $current_processing = get_option('smart_ai_linker_current_processing', []);
     if (!empty($current_processing) && $current_processing['post_type'] !== $post_type) {
         wp_send_json_error('Another post type (' . $current_processing['post_type'] . ') is currently being processed. Please wait for it to complete.');
     }
-    
+
     // Get unprocessed posts
     $args = array(
         'post_type' => $post_type,
@@ -511,17 +520,17 @@ add_action('wp_ajax_smart_ai_bulk_start', function() {
         'orderby' => 'date',
         'order' => 'DESC',
     );
-    
+
     $unprocessed = get_posts($args);
-    
+
     if (empty($unprocessed)) {
         wp_send_json_error('No unprocessed posts found');
     }
-    
+
     // Set up the processing state
     update_option('smart_ai_linker_bulk_queue', $unprocessed);
     update_option('smart_ai_linker_bulk_progress', array(
-        'total' => count($unprocessed), 
+        'total' => count($unprocessed),
         'processed' => 0,
         'skipped' => 0,
         'errors' => [],
@@ -530,37 +539,37 @@ add_action('wp_ajax_smart_ai_bulk_start', function() {
         'started_at' => current_time('mysql'),
         'last_updated' => current_time('mysql')
     ));
-    
+
     // Lock the post type for processing
     update_option('smart_ai_linker_current_processing', [
         'post_type' => $post_type,
         'started_at' => current_time('mysql'),
         'total_posts' => count($unprocessed)
     ]);
-    
+
     wp_send_json_success(array('total' => count($unprocessed)));
 });
 
-add_action('wp_ajax_smart_ai_bulk_next', function() {
+add_action('wp_ajax_smart_ai_bulk_next', function () {
     if (!current_user_can('edit_posts')) {
         wp_send_json_error('Insufficient permissions');
     }
-    
+
     $queue = get_option('smart_ai_linker_bulk_queue', []);
     $progress = get_option('smart_ai_linker_bulk_progress', array('total' => 0, 'processed' => 0, 'skipped' => 0, 'errors' => [], 'status' => []));
-    
+
     if (empty($queue)) {
         // Processing is complete
         delete_option('smart_ai_linker_current_processing');
         wp_send_json_success(array('done' => true, 'progress' => $progress));
     }
-    
+
     $post_id = array_shift($queue);
-    
+
     if ($post_id) {
         // Process the post and get result
         $result = smart_ai_linker_process_single_post($post_id);
-        
+
         // Update progress based on result
         switch ($result['status']) {
             case 'processed':
@@ -577,22 +586,22 @@ add_action('wp_ajax_smart_ai_bulk_next', function() {
                 $progress['status'][$post_id] = 'error';
                 break;
         }
-        
+
         // Update timestamps
         $progress['last_updated'] = current_time('mysql');
-        
+
         // Update the queue and progress in database
         update_option('smart_ai_linker_bulk_queue', $queue);
         update_option('smart_ai_linker_bulk_progress', $progress);
-        
+
         // Get current post info for display
         $post = get_post($post_id);
         $current_post_info = $post ? $post->post_title : "Post ID: {$post_id}";
-        
+
         // Verify the actual processing status from database
         $actual_status = get_post_meta($post_id, '_smart_ai_linker_processed', true);
         $actual_links = get_post_meta($post_id, '_smart_ai_linker_added_links', true);
-        
+
         // Double-check the status if there's a discrepancy
         if ($result['status'] === 'processed' && empty($actual_status)) {
             // If we think it was processed but no meta exists, mark as error
@@ -605,7 +614,7 @@ add_action('wp_ajax_smart_ai_bulk_next', function() {
             $progress['processed']++;
             $progress['skipped']--; // Adjust the count
             // Remove the error from the list
-            $progress['errors'] = array_filter($progress['errors'], function($error) use ($post_id) {
+            $progress['errors'] = array_filter($progress['errors'], function ($error) use ($post_id) {
                 return strpos($error, "Post ID {$post_id}:") === false;
             });
             error_log("[Smart AI] Post {$post_id} verification corrected - error but meta exists, marking as processed");
@@ -614,12 +623,12 @@ add_action('wp_ajax_smart_ai_bulk_next', function() {
             $progress['status'][$post_id] = 'processed';
             error_log("[Smart AI] Post {$post_id} verified as successfully processed with " . count($actual_links) . " links");
         }
-        
+
         // Update the progress again with verified status
         update_option('smart_ai_linker_bulk_progress', $progress);
-        
+
         wp_send_json_success(array(
-            'done' => false, 
+            'done' => false,
             'progress' => $progress,
             'current_post' => $current_post_info,
             'current_post_id' => $post_id,
@@ -632,7 +641,7 @@ add_action('wp_ajax_smart_ai_bulk_next', function() {
     }
 });
 
-add_action('wp_ajax_smart_ai_bulk_stop', function() {
+add_action('wp_ajax_smart_ai_bulk_stop', function () {
     if (!current_user_can('edit_posts')) {
         wp_send_json_error('Insufficient permissions');
     }
@@ -642,18 +651,18 @@ add_action('wp_ajax_smart_ai_bulk_stop', function() {
     wp_send_json_success();
 });
 
-add_action('wp_ajax_smart_ai_bulk_status', function() {
+add_action('wp_ajax_smart_ai_bulk_status', function () {
     if (!current_user_can('edit_posts')) {
         wp_send_json_error('Insufficient permissions');
     }
-    
+
     $queue = get_option('smart_ai_linker_bulk_queue', []);
     $progress = get_option('smart_ai_linker_bulk_progress', array('total' => 0, 'processed' => 0, 'skipped' => 0, 'errors' => [], 'status' => []));
     $current_processing = get_option('smart_ai_linker_current_processing', []);
-    
+
     // Only consider it running if there's actually a queue with items
     $is_running = !empty($queue) && count($queue) > 0;
-    
+
     // If we have progress but no queue, check if processing is actually complete
     if (!empty($progress) && empty($queue) && $progress['total'] > 0) {
         $total_completed = $progress['processed'] + $progress['skipped'];
@@ -663,16 +672,16 @@ add_action('wp_ajax_smart_ai_bulk_status', function() {
             $is_running = false;
         }
     }
-    
+
     // Verify status accuracy by checking actual post meta
     if (!empty($progress['status'])) {
         $verified_status = [];
         $verified_counts = ['processed' => 0, 'skipped' => 0, 'error' => 0];
-        
+
         foreach ($progress['status'] as $post_id => $reported_status) {
             $actual_status = get_post_meta($post_id, '_smart_ai_linker_processed', true);
             $actual_links = get_post_meta($post_id, '_smart_ai_linker_added_links', true);
-            
+
             // Determine the actual status based on database
             if (!empty($actual_status) && !empty($actual_links)) {
                 $verified_status[$post_id] = 'processed';
@@ -693,16 +702,16 @@ add_action('wp_ajax_smart_ai_bulk_status', function() {
                 }
             }
         }
-        
+
         // Update progress with verified status
         $progress['status'] = $verified_status;
         $progress['processed'] = $verified_counts['processed'];
         $progress['skipped'] = $verified_counts['skipped'];
-        
+
         // Update the stored progress
         update_option('smart_ai_linker_bulk_progress', $progress);
     }
-    
+
     wp_send_json_success(array(
         'running' => $is_running,
         'progress' => $progress,
@@ -712,15 +721,15 @@ add_action('wp_ajax_smart_ai_bulk_status', function() {
 });
 
 // New AJAX handler to get processing status for post type locking
-add_action('wp_ajax_smart_ai_bulk_get_processing_status', function() {
+add_action('wp_ajax_smart_ai_bulk_get_processing_status', function () {
     if (!current_user_can('edit_posts')) {
         wp_send_json_error('Insufficient permissions');
     }
-    
+
     $current_processing = get_option('smart_ai_linker_current_processing', []);
     $progress = get_option('smart_ai_linker_bulk_progress', array('total' => 0, 'processed' => 0, 'skipped' => 0, 'errors' => [], 'status' => []));
     $queue = get_option('smart_ai_linker_bulk_queue', []);
-    
+
     // Check if processing is stuck (has progress but no queue)
     $is_stuck = false;
     if (!empty($current_processing) && !empty($progress) && empty($queue) && $progress['total'] > 0) {
@@ -729,7 +738,7 @@ add_action('wp_ajax_smart_ai_bulk_get_processing_status', function() {
             $is_stuck = true;
         }
     }
-    
+
     wp_send_json_success(array(
         'is_processing' => !empty($current_processing),
         'current_processing' => $current_processing,
@@ -740,18 +749,18 @@ add_action('wp_ajax_smart_ai_bulk_get_processing_status', function() {
 });
 
 // New AJAX handler to force resume processing
-add_action('wp_ajax_smart_ai_bulk_force_resume', function() {
+add_action('wp_ajax_smart_ai_bulk_force_resume', function () {
     if (!current_user_can('edit_posts')) {
         wp_send_json_error('Insufficient permissions');
     }
-    
+
     $progress = get_option('smart_ai_linker_bulk_progress', []);
     $current_processing = get_option('smart_ai_linker_current_processing', []);
-    
+
     if (empty($progress) || empty($current_processing)) {
         wp_send_json_error('No processing to resume');
     }
-    
+
     // Rebuild the queue from unprocessed posts
     $post_type = $current_processing['post_type'];
     $args = array(
@@ -767,9 +776,9 @@ add_action('wp_ajax_smart_ai_bulk_force_resume', function() {
         'orderby' => 'date',
         'order' => 'DESC',
     );
-    
+
     $unprocessed = get_posts($args);
-    
+
     if (empty($unprocessed)) {
         // All posts are processed, clean up
         delete_option('smart_ai_linker_current_processing');
@@ -777,16 +786,16 @@ add_action('wp_ajax_smart_ai_bulk_force_resume', function() {
         delete_option('smart_ai_linker_bulk_progress');
         wp_send_json_success(array('done' => true, 'message' => 'All posts already processed'));
     }
-    
+
     // Update the queue
     update_option('smart_ai_linker_bulk_queue', $unprocessed);
-    
+
     // Update progress total if needed
     if ($progress['total'] !== count($unprocessed)) {
         $progress['total'] = count($unprocessed);
         update_option('smart_ai_linker_bulk_progress', $progress);
     }
-    
+
     wp_send_json_success(array(
         'resumed' => true,
         'queue_count' => count($unprocessed),
@@ -795,25 +804,25 @@ add_action('wp_ajax_smart_ai_bulk_force_resume', function() {
 });
 
 // New AJAX handler to get link count for a post
-add_action('wp_ajax_smart_ai_bulk_get_link_count', function() {
+add_action('wp_ajax_smart_ai_bulk_get_link_count', function () {
     if (!current_user_can('edit_posts')) {
         wp_send_json_error('Insufficient permissions');
     }
-    
+
     $post_id = isset($_POST['post_id']) ? intval($_POST['post_id']) : 0;
-    
+
     if (!$post_id) {
         wp_send_json_error('Invalid post ID');
     }
-    
+
     // Get the actual links from post meta
     $added_links = get_post_meta($post_id, '_smart_ai_linker_added_links', true);
     $link_count = 0;
-    
+
     if (!empty($added_links) && is_array($added_links)) {
         $link_count = count($added_links);
     }
-    
+
     // Also count actual links in the content
     $post = get_post($post_id);
     $actual_links_in_content = 0;
@@ -822,7 +831,7 @@ add_action('wp_ajax_smart_ai_bulk_get_link_count', function() {
         preg_match_all('/<a[^>]*class="[^"]*smart-ai-link[^"]*"[^>]*>/i', $post->post_content, $matches);
         $actual_links_in_content = count($matches[0]);
     }
-    
+
     wp_send_json_success(array(
         'link_count' => $link_count,
         'actual_links_in_content' => $actual_links_in_content,
@@ -833,7 +842,7 @@ add_action('wp_ajax_smart_ai_bulk_get_link_count', function() {
 // --- End Enhanced Background Bulk Processing ---
 
 // Ensure admin.js is enqueued on edit.php (posts/pages list)
-add_action('admin_enqueue_scripts', function($hook) {
+add_action('admin_enqueue_scripts', function ($hook) {
     if ($hook === 'edit.php') {
         wp_enqueue_script(
             'smart-ai-linker-admin-bulk',
