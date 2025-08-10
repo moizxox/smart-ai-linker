@@ -11,6 +11,52 @@ if (!defined('ABSPATH'))
 // Hook into post saving
 add_action('save_post', 'smart_ai_linker_generate_internal_links', 20, 3);
 
+// Extra reliability: also trigger on publish transitions and direct publish hooks
+add_action('transition_post_status', function ($new_status, $old_status, $post) {
+    if (!is_object($post)) return;
+    if ($new_status === 'publish' && $old_status !== 'publish') {
+        // Ensure only supported post types
+        $enabled_post_types = get_option('smart_ai_linker_post_types', array('post', 'page'));
+        if (in_array($post->post_type, (array) $enabled_post_types, true)) {
+            smart_ai_linker_generate_internal_links($post->ID, $post, true);
+        }
+    }
+}, 20, 3);
+
+add_action('publish_post', function ($post_ID) {
+    $post = get_post($post_ID);
+    if ($post && $post->post_type === 'post') {
+        smart_ai_linker_generate_internal_links($post_ID, $post, true);
+    }
+}, 20, 1);
+
+add_action('publish_page', function ($post_ID) {
+    $post = get_post($post_ID);
+    if ($post && $post->post_type === 'page') {
+        smart_ai_linker_generate_internal_links($post_ID, $post, true);
+    }
+}, 20, 1);
+
+// Support REST/Gutenberg flows and after-insert hooks to ensure coverage across editors
+add_action('rest_after_insert_post', function ($post, $request, $creating) {
+    if ($creating && is_object($post) && $post->post_status === 'publish') {
+        smart_ai_linker_generate_internal_links($post->ID, $post, true);
+    }
+}, 20, 3);
+add_action('rest_after_insert_page', function ($post, $request, $creating) {
+    if ($creating && is_object($post) && $post->post_status === 'publish') {
+        smart_ai_linker_generate_internal_links($post->ID, $post, true);
+    }
+}, 20, 3);
+add_action('wp_after_insert_post', function ($post_ID, $post, $update) {
+    if (is_object($post) && $post->post_status === 'publish') {
+        $enabled_post_types = get_option('smart_ai_linker_post_types', array('post', 'page'));
+        if (in_array($post->post_type, (array) $enabled_post_types, true)) {
+            smart_ai_linker_generate_internal_links($post_ID, $post, $update);
+        }
+    }
+}, 20, 3);
+
 /**
  * Generate and insert internal links when a post is saved or updated
  * 
@@ -31,6 +77,16 @@ function smart_ai_linker_generate_internal_links($post_ID, $post = null, $update
         }
     }
     error_log('[Smart AI] Starting internal link generation for post ' . $post_ID);
+
+    // Guard against duplicate runs within 60 seconds (multiple hooks fire on publish)
+    $recent_processed = get_post_meta($post_ID, '_smart_ai_linker_processed', true);
+    if (!empty($recent_processed)) {
+        $recent_ts = strtotime($recent_processed);
+        if ($recent_ts && (time() - $recent_ts) < 60) {
+            error_log('[Smart AI] Skipping duplicate auto-linking for post ' . $post_ID . ' (recently processed)');
+            return $post_ID;
+        }
+    }
 
     // Skip if auto-linking is disabled or this is an autosave
     if (!get_option('smart_ai_linker_enable_auto_linking', true)) {
