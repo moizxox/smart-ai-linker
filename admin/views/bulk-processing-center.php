@@ -7,18 +7,7 @@
             <h3><?php _e('Total Posts', 'smart-ai-linker'); ?></h3>
             <span id="total-posts">0</span>
         </div>
-        <div class="stat-card">
-            <h3><?php _e('Processed', 'smart-ai-linker'); ?></h3>Processed: 0 | Skipped: 0 | Errors: 0
-            <span id="processed-posts">0</span>
-        </div>
-        <div class="stat-card">
-            <h3><?php _e('Skipped', 'smart-ai-linker'); ?></h3>
-            <span id="skipped-posts">0</span>
-        </div>
-        <div class="stat-card">
-            <h3><?php _e('Errors', 'smart-ai-linker'); ?></h3>
-            <span id="error-posts">0</span>
-        </div>
+
     </div>
 
     <div class="smart-ai-bulk-controls">
@@ -34,6 +23,7 @@
                 ?>
             </select>
             <button id="bulk-center-load-posts" class="button"><?php _e('Load Unprocessed', 'smart-ai-linker'); ?></button>
+            <button id="bulk-center-refresh" class="button"><?php _e('Refresh Panel', 'smart-ai-linker'); ?></button>
         </div>
 
         <div class="control-group">
@@ -231,6 +221,12 @@
             border-bottom: none;
         }
 
+        /* Highlight skipped posts */
+        .post-item.skipped {
+            background: #fff7d6;
+            /* soft yellow */
+        }
+
         .post-info {
             flex: 1;
         }
@@ -347,78 +343,52 @@
                 errors: []
             };
             let processingStartTime = null;
+            // Minimal UI: avoid heavy per-post rendering
+            let hasLoadedPostsOnResume = false;
+            let fixedTotal = null;
 
             function updateStats() {
-                $('#total-posts').text(currentProgress.total);
-                $('#processed-posts').text(currentProgress.processed);
-                $('#skipped-posts').text(currentProgress.skipped);
-                $('#error-posts').text(currentProgress.errors.length);
+                $('#total-posts').text((typeof fixedTotal === 'number') ? fixedTotal : (currentProgress.total || 0));
+                // processed/skipped/errors cards removed per request
             }
 
             function renderList(statuses = {}) {
+                if (statuses && Object.keys(statuses).length > 0) {
+                    postList = postList.filter(function(post) {
+                        return statuses[post.id] !== 'processed';
+                    });
+                }
                 if (postList.length === 0) {
                     $('#bulk-center-list-container').html('<div class="empty-state"><p>No unprocessed posts found.</p></div>');
                     return;
                 }
-
                 let html = '<div class="post-list">';
                 postList.forEach(function(post) {
-                    let status = statuses[post.id] || 'queued';
-                    let statusClass = 'status-' + status;
-                    let statusText = status.charAt(0).toUpperCase() + status.slice(1);
-
-                    // Add verification indicator for processed posts
-                    let verificationIcon = '';
-                    let linkCount = '';
-                    if (status === 'processed') {
-                        verificationIcon = ' <span style="color: #46b450; font-size: 12px;">✓</span>';
-                        // Get actual link count for processed posts
-                        $.post(ajaxurl, {
-                            action: 'smart_ai_bulk_get_link_count',
-                            post_id: post.id
-                        }, function(response) {
-                            if (response.success && response.data.link_count > 0) {
-                                $(`.post-item[data-id="${post.id}"] .post-status`).append(` <span style="color: #46b450; font-size: 10px;">(${response.data.link_count} links)</span>`);
-                            }
-                        });
-                    } else if (status === 'error') {
-                        verificationIcon = ' <span style="color: #dc3232; font-size: 12px;">⚠</span>';
-                    } else if (status === 'skipped') {
-                        verificationIcon = ' <span style="color: #ffb900; font-size: 12px;">⏭</span>';
-                    }
-
                     html += `
-                <div class="post-item" data-id="${post.id}">
-                    <div class="post-info">
-                        <div class="post-title">${$('<div>').text(post.title).html()}</div>
-                        <div class="post-meta">ID: ${post.id} | ${post.word_count} words</div>
-                    </div>
-                    <span class="post-status ${statusClass}">${statusText}${verificationIcon}</span>
-                </div>
-            `;
+                    <div class="post-item" data-id="${post.id}">
+                        <div class="post-info">
+                            <div class="post-title">${$('<div>').text(post.title).html()}</div>
+                            <div class="post-meta">ID: ${post.id} | ${post.word_count} words</div>
+                        </div>
+                    </div>`;
                 });
                 html += '</div>';
                 $('#bulk-center-list-container').html(html);
             }
 
-            function updateProgressBar(processed, total) {
-                if (total === 0) return;
+            // Minimal UI: per-post stability handling removed
 
-                let percent = Math.round((processed / total) * 100);
-                $('.progress-fill').css('width', percent + '%');
-                $('.progress-text').text(percent + '%');
+            function updateProgressBar() {
+                /* progress bar hidden */
             }
 
             function updateProgressDetails(progress) {
-                currentProgress = progress;
+                if (!progress) return;
+                currentProgress = Object.assign({}, currentProgress, progress, {
+                    total: (typeof fixedTotal === 'number') ? fixedTotal : (progress.total || currentProgress.total || 0)
+                });
                 updateStats();
-                updateProgressBar(progress.processed, progress.total);
-
-                $('#current-status').text(`Processed: ${progress.processed} | Skipped: ${progress.skipped} | Errors: ${progress.errors.length}`);
-
-                if (progress.status && Object.keys(progress.status).length > 0) {
-                    renderList(progress.status);
-                }
+                renderList(progress.status || {});
             }
 
             function updateButtonStates() {
@@ -426,10 +396,12 @@
                     $('#bulk-center-start').prop('disabled', true).hide();
                     $('#bulk-center-stop').show();
                     $('#bulk-center-resume').hide(); // Hide resume by default, will be shown if stuck
-                    $('#progress-container').show();
+                    // Keep progress bar container hidden as requested
+                    $('#progress-container').hide();
                     $('#processing-status').show();
                 } else {
-                    $('#bulk-center-start').prop('disabled', postList.length === 0).show();
+                    const canStart = ((typeof fixedTotal === 'number') ? fixedTotal : currentProgress.total) > 0;
+                    $('#bulk-center-start').prop('disabled', !canStart).show();
                     $('#bulk-center-stop').hide();
                     $('#bulk-center-resume').hide();
                     $('#progress-container').hide();
@@ -519,6 +491,36 @@
                                         resumeProcessing();
                                     }
                                 }
+                            }
+
+                            // Ensure totals and list are in sync once after reload
+                            if (!hasLoadedPostsOnResume) {
+                                hasLoadedPostsOnResume = true;
+                                // Fetch once to set total count without rendering heavy lists
+                                $.post(ajaxurl, {
+                                    action: 'smart_ai_bulk_get_unprocessed',
+                                    post_type: postType
+                                }, function(resp) {
+                                    if (resp.success) {
+                                        fixedTotal = Array.isArray(resp.data) ? resp.data.length : 0;
+                                        currentProgress.total = fixedTotal;
+                                        updateStats();
+                                        // Initialize visible cards
+                                        postList = Array.isArray(resp.data) ? resp.data : [];
+                                        // Remove already-processed posts using processed_ids snapshot from status response
+                                        const processedIds = Array.isArray(response.data.processed_ids) ? response.data.processed_ids : [];
+                                        if (processedIds.length) {
+                                            const set = new Set(processedIds.map(function(i) {
+                                                return parseInt(i, 10);
+                                            }));
+                                            postList = postList.filter(function(post) {
+                                                return !set.has(parseInt(post.id, 10));
+                                            });
+                                        }
+                                        renderList({});
+                                        updateButtonStates();
+                                    }
+                                });
                             }
 
                             // Start polling for updates
@@ -623,13 +625,27 @@
                     post_type: postType
                 }, function(response) {
                     if (response.success && response.data.length > 0) {
+                        fixedTotal = response.data.length;
+                        currentProgress.total = fixedTotal;
                         postList = response.data;
-                        renderList();
+                        // Remove any items already processed using processed_ids snapshot if available via status check
+                        const processedIds = Array.isArray(response.data.processed_ids) ? response.data.processed_ids : [];
+                        if (processedIds.length) {
+                            const set = new Set(processedIds.map(function(i) {
+                                return parseInt(i, 10);
+                            }));
+                            postList = postList.filter(function(post) {
+                                return !set.has(parseInt(post.id, 10));
+                            });
+                        }
+                        renderList({});
                         updateButtonStates();
                         clearErrors();
                     } else if (response.success && response.data.length === 0) {
                         postList = [];
-                        $('#bulk-center-list-container').html('<div class="empty-state"><p>No unprocessed posts found.</p></div>');
+                        fixedTotal = 0;
+                        currentProgress.total = 0;
+                        renderList({});
                         updateButtonStates();
                     } else {
                         // Handle error response
@@ -698,7 +714,9 @@
 
             // Enhanced start processing function
             $('#bulk-center-start').on('click', function() {
-                if (!postList.length || isProcessing) return;
+                if (isProcessing) return;
+                const startableTotal = (typeof fixedTotal === 'number') ? fixedTotal : currentProgress.total;
+                if (!startableTotal) return;
 
                 isProcessing = true;
                 updateButtonStates();
@@ -736,6 +754,13 @@
                                         // Show verification status if available
                                         if (nextResp.data.verified_status) {
                                             console.log(`Post ${nextResp.data.current_post_id} verified as: ${nextResp.data.verified_status}`);
+                                            if (nextResp.data.verified_status === 'processed' && nextResp.data.current_post_id) {
+                                                const processedId = parseInt(nextResp.data.current_post_id, 10);
+                                                postList = postList.filter(function(post) {
+                                                    return parseInt(post.id, 10) !== processedId;
+                                                });
+                                                renderList({});
+                                            }
                                         }
                                     }
                                 } else {
@@ -847,6 +872,49 @@
                 loadUnprocessedPosts();
             });
 
+            // Add a manual refresh button to re-sync cards during an active process
+            $('#bulk-center-refresh').on('click', function() {
+                // Force a status check, then reload unprocessed list and drop processed ids
+                $.post(ajaxurl, {
+                    action: 'smart_ai_bulk_get_processing_status'
+                }, function(statusResp) {
+                    // Regardless of status success, reload list and filter using any available processed_ids
+                    const processedIds = (statusResp && statusResp.success && Array.isArray(statusResp.data.processed_ids)) ?
+                        statusResp.data.processed_ids.map(function(i) {
+                            return parseInt(i, 10);
+                        }) : [];
+
+                    postType = $('#bulk-center-post-type').val();
+                    $('#bulk-center-list-container').html('<div class="empty-state"><p>Refreshing...</p></div>');
+                    $.post(ajaxurl, {
+                        action: 'smart_ai_bulk_get_unprocessed',
+                        post_type: postType
+                    }, function(listResp) {
+                        if (listResp.success && Array.isArray(listResp.data)) {
+                            postList = listResp.data;
+                            if (processedIds.length) {
+                                const set = new Set(processedIds);
+                                postList = postList.filter(function(post) {
+                                    return !set.has(parseInt(post.id, 10));
+                                });
+                            }
+                            fixedTotal = postList.length;
+                            currentProgress.total = fixedTotal;
+                            renderList({});
+                            updateButtonStates();
+                        } else {
+                            $('#bulk-center-list-container').html('<div class="empty-state"><p>No unprocessed posts found.</p></div>');
+                            postList = [];
+                            fixedTotal = 0;
+                            currentProgress.total = 0;
+                            updateButtonStates();
+                        }
+                    }).fail(function() {
+                        $('#bulk-center-list-container').html('<div class="empty-state"><p>Error refreshing. Please try again.</p></div>');
+                    });
+                });
+            });
+
             // Add resume processing handler
             $('#bulk-center-resume').on('click', function() {
                 if (confirm('Resume processing from where it left off?')) {
@@ -879,6 +947,13 @@
                                                     // Update current post info if available
                                                     if (nextResp.data.current_post) {
                                                         $('#current-post').text(nextResp.data.current_post);
+                                                    }
+                                                    if (nextResp.data.verified_status === 'processed' && nextResp.data.current_post_id) {
+                                                        const processedId = parseInt(nextResp.data.current_post_id, 10);
+                                                        postList = postList.filter(function(post) {
+                                                            return parseInt(post.id, 10) !== processedId;
+                                                        });
+                                                        renderList({});
                                                     }
                                                 }
                                             } else {

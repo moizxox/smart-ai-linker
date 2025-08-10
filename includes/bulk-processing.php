@@ -627,14 +627,30 @@ add_action('wp_ajax_smart_ai_bulk_next', function () {
         // Update the progress again with verified status
         update_option('smart_ai_linker_bulk_progress', $progress);
 
+        // Record last processed id for UI sync on reload
+        if (isset($progress['status'][$post_id]) && $progress['status'][$post_id] === 'processed') {
+            update_option('smart_ai_linker_last_processed_id', (int) $post_id);
+        }
+
+        // Thin progress payload to reduce UI glitches due to heavy responses
+        $response_progress = array(
+            'total' => isset($progress['total']) ? (int) $progress['total'] : 0,
+            'processed' => isset($progress['processed']) ? (int) $progress['processed'] : 0,
+            'skipped' => isset($progress['skipped']) ? (int) $progress['skipped'] : 0,
+            'errors_count' => isset($progress['errors']) && is_array($progress['errors']) ? count($progress['errors']) : 0,
+            'started_at' => isset($progress['started_at']) ? $progress['started_at'] : null,
+            'last_updated' => isset($progress['last_updated']) ? $progress['last_updated'] : null
+        );
+
         wp_send_json_success(array(
             'done' => false,
-            'progress' => $progress,
+            'progress' => $response_progress,
             'current_post' => $current_post_info,
             'current_post_id' => $post_id,
-            'verified_status' => $progress['status'][$post_id],
+            'verified_status' => isset($progress['status'][$post_id]) ? $progress['status'][$post_id] : null,
             'actual_meta' => !empty($actual_status),
-            'queue_remaining' => count($queue)
+            'queue_remaining' => count($queue),
+            'last_processed_id' => (int) get_option('smart_ai_linker_last_processed_id', 0)
         ));
     } else {
         wp_send_json_success(array('done' => true, 'progress' => $progress));
@@ -673,7 +689,7 @@ add_action('wp_ajax_smart_ai_bulk_status', function () {
         }
     }
 
-    // Verify status accuracy by checking actual post meta
+    // Verify status accuracy by checking actual post meta, without defaulting unknowns to skipped
     if (!empty($progress['status'])) {
         $verified_status = [];
         $verified_counts = ['processed' => 0, 'skipped' => 0, 'error' => 0];
@@ -682,24 +698,26 @@ add_action('wp_ajax_smart_ai_bulk_status', function () {
             $actual_status = get_post_meta($post_id, '_smart_ai_linker_processed', true);
             $actual_links = get_post_meta($post_id, '_smart_ai_linker_added_links', true);
 
-            // Determine the actual status based on database
             if (!empty($actual_status) && !empty($actual_links)) {
+                // Definitely processed
                 $verified_status[$post_id] = 'processed';
                 $verified_counts['processed']++;
                 error_log("[Smart AI] Post {$post_id} verified as processed with " . count($actual_links) . " links");
             } elseif ($reported_status === 'skipped') {
+                // Respect explicit skipped status
                 $verified_status[$post_id] = 'skipped';
                 $verified_counts['skipped']++;
+            } elseif ($reported_status === 'error') {
+                // Keep error unless proven processed
+                $verified_status[$post_id] = 'error';
+            } elseif ($reported_status === 'processed') {
+                // Reported processed but no meta: treat as error, do not mislabel as skipped
+                $verified_status[$post_id] = 'error';
+                $verified_counts['error']++;
+                error_log("[Smart AI] Post {$post_id} verification failed - reported as processed but no meta found");
             } else {
-                // Only mark as error if it was reported as processed but has no meta
-                if ($reported_status === 'processed') {
-                    $verified_status[$post_id] = 'error';
-                    $verified_counts['error']++;
-                    error_log("[Smart AI] Post {$post_id} verification failed - reported as processed but no meta found");
-                } else {
-                    $verified_status[$post_id] = 'skipped';
-                    $verified_counts['skipped']++;
-                }
+                // Unknown/pending stays queued
+                $verified_status[$post_id] = 'queued';
             }
         }
 
@@ -712,11 +730,37 @@ add_action('wp_ajax_smart_ai_bulk_status', function () {
         update_option('smart_ai_linker_bulk_progress', $progress);
     }
 
+    // Thin progress payload
+    $response_progress = array(
+        'total' => isset($progress['total']) ? (int) $progress['total'] : 0,
+        'processed' => isset($progress['processed']) ? (int) $progress['processed'] : 0,
+        'skipped' => isset($progress['skipped']) ? (int) $progress['skipped'] : 0,
+        'errors_count' => isset($progress['errors']) && is_array($progress['errors']) ? count($progress['errors']) : 0,
+        'started_at' => isset($progress['started_at']) ? $progress['started_at'] : null,
+        'last_updated' => isset($progress['last_updated']) ? $progress['last_updated'] : null
+    );
+
+    // Provide a compact list of processed IDs for UI resync after reload
+    $processed_ids = array();
+    if (!empty($progress['status']) && is_array($progress['status'])) {
+        foreach ($progress['status'] as $pid => $st) {
+            if ($st === 'processed') {
+                $processed_ids[] = (int) $pid;
+            }
+        }
+        // Limit to most recent 100 to keep payload small
+        if (count($processed_ids) > 100) {
+            $processed_ids = array_slice($processed_ids, -100);
+        }
+    }
+
     wp_send_json_success(array(
         'running' => $is_running,
-        'progress' => $progress,
+        'progress' => $response_progress,
         'current_processing' => $current_processing,
-        'queue_count' => count($queue)
+        'queue_count' => count($queue),
+        'processed_ids' => $processed_ids,
+        'last_processed_id' => (int) get_option('smart_ai_linker_last_processed_id', 0)
     ));
 });
 
@@ -739,10 +783,49 @@ add_action('wp_ajax_smart_ai_bulk_get_processing_status', function () {
         }
     }
 
+    // Verify statuses but respond with thin payload
+    if (!empty($progress['status'])) {
+        $verified_status = [];
+        $verified_counts = ['processed' => 0, 'skipped' => 0, 'error' => 0];
+
+        foreach ($progress['status'] as $post_id => $reported_status) {
+            $actual_status = get_post_meta($post_id, '_smart_ai_linker_processed', true);
+            $actual_links = get_post_meta($post_id, '_smart_ai_linker_added_links', true);
+
+            if (!empty($actual_status) && !empty($actual_links)) {
+                $verified_status[$post_id] = 'processed';
+                $verified_counts['processed']++;
+            } elseif ($reported_status === 'skipped') {
+                $verified_status[$post_id] = 'skipped';
+                $verified_counts['skipped']++;
+            } elseif ($reported_status === 'error') {
+                $verified_status[$post_id] = 'error';
+            } elseif ($reported_status === 'processed') {
+                $verified_status[$post_id] = 'error';
+            } else {
+                $verified_status[$post_id] = 'queued';
+            }
+        }
+
+        $progress['status'] = $verified_status;
+        $progress['processed'] = $verified_counts['processed'];
+        $progress['skipped'] = $verified_counts['skipped'];
+        update_option('smart_ai_linker_bulk_progress', $progress);
+    }
+
+    $response_progress = array(
+        'total' => isset($progress['total']) ? (int) $progress['total'] : 0,
+        'processed' => isset($progress['processed']) ? (int) $progress['processed'] : 0,
+        'skipped' => isset($progress['skipped']) ? (int) $progress['skipped'] : 0,
+        'errors_count' => isset($progress['errors']) && is_array($progress['errors']) ? count($progress['errors']) : 0,
+        'started_at' => isset($progress['started_at']) ? $progress['started_at'] : null,
+        'last_updated' => isset($progress['last_updated']) ? $progress['last_updated'] : null
+    );
+
     wp_send_json_success(array(
         'is_processing' => !empty($current_processing),
         'current_processing' => $current_processing,
-        'progress' => $progress,
+        'progress' => $response_progress,
         'is_stuck' => $is_stuck,
         'queue_count' => count($queue)
     ));
