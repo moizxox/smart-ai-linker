@@ -544,6 +544,14 @@
                                                 return !set.has(parseInt(post.id, 10));
                                             });
                                         }
+                                        // If we resumed and the mode was selected IDs, re-check those checkboxes
+                                        const mode = response.data.progress && response.data.progress.mode;
+                                        const selectedOnServer = response.data.progress && Array.isArray(response.data.progress.selected_ids) ? response.data.progress.selected_ids : [];
+                                        if (mode === 'process' && selectedOnServer.length) {
+                                            selectedIds = new Set(selectedOnServer.map(function(i) {
+                                                return parseInt(i, 10);
+                                            }));
+                                        }
                                         renderList({});
                                         updateButtonStates();
                                     }
@@ -622,6 +630,16 @@
                     if (response.success) {
                         // Update progress with verified data
                         updateProgressDetails(response.data.progress);
+                        // Keep selections persisted based on progress snapshot
+                        if (response.data && response.data.progress) {
+                            const mode = response.data.progress.mode;
+                            const selectedOnServer = Array.isArray(response.data.progress.selected_ids) ? response.data.progress.selected_ids : [];
+                            if (mode === 'process' && selectedOnServer.length) {
+                                selectedIds = new Set(selectedOnServer.map(function(i) {
+                                    return parseInt(i, 10);
+                                }));
+                            }
+                        }
                         updateProcessingStatus(response.data.current_processing);
 
                         if (response.data.running) {

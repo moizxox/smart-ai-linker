@@ -612,6 +612,8 @@ add_action('wp_ajax_smart_ai_bulk_start', function () {
         'errors' => [],
         'status' => [],
         'post_type' => $post_type,
+        'mode' => 'all',
+        'selected_ids' => [],
         'started_at' => current_time('mysql'),
         'last_updated' => current_time('mysql')
     ));
@@ -820,7 +822,9 @@ add_action('wp_ajax_smart_ai_bulk_status', function () {
         'skipped' => isset($progress['skipped']) ? (int) $progress['skipped'] : 0,
         'errors_count' => isset($progress['errors']) && is_array($progress['errors']) ? count($progress['errors']) : 0,
         'started_at' => isset($progress['started_at']) ? $progress['started_at'] : null,
-        'last_updated' => isset($progress['last_updated']) ? $progress['last_updated'] : null
+        'last_updated' => isset($progress['last_updated']) ? $progress['last_updated'] : null,
+        'mode' => isset($progress['mode']) ? $progress['mode'] : null,
+        'selected_ids' => isset($progress['selected_ids']) && is_array($progress['selected_ids']) ? array_map('intval', $progress['selected_ids']) : []
     );
 
     // Provide a compact list of processed IDs for UI resync after reload
@@ -902,7 +906,9 @@ add_action('wp_ajax_smart_ai_bulk_get_processing_status', function () {
         'skipped' => isset($progress['skipped']) ? (int) $progress['skipped'] : 0,
         'errors_count' => isset($progress['errors']) && is_array($progress['errors']) ? count($progress['errors']) : 0,
         'started_at' => isset($progress['started_at']) ? $progress['started_at'] : null,
-        'last_updated' => isset($progress['last_updated']) ? $progress['last_updated'] : null
+        'last_updated' => isset($progress['last_updated']) ? $progress['last_updated'] : null,
+        'mode' => isset($progress['mode']) ? $progress['mode'] : null,
+        'selected_ids' => isset($progress['selected_ids']) && is_array($progress['selected_ids']) ? array_map('intval', $progress['selected_ids']) : []
     );
 
     // Provide a compact list of processed IDs for UI resync
@@ -1058,6 +1064,7 @@ add_action('wp_ajax_smart_ai_bulk_queue_selected', function () {
         'status' => [],
         'post_type' => $post_type,
         'mode' => $mode,
+        'selected_ids' => $post_ids,
         'started_at' => current_time('mysql'),
         'last_updated' => current_time('mysql')
     ));
