@@ -685,69 +685,7 @@
             });
         });
         
-        // Handle Clear Links button click
-        $(document).on('click', '#smart-ai-linker-clear', function(e) {
-            e.preventDefault();
-            
-            // Check if smartAILinker is defined
-            if (typeof smartAILinker === 'undefined') {
-                console.error('smartAILinker is not defined');
-                return;
-            }
-            
-            if (!confirm(smartAILinker.i18n.clearConfirm || 'Are you sure you want to clear all generated links?')) {
-                return;
-            }
-            
-            var $button = $(this);
-            var $spinner = $button.siblings('.spinner');
-            var $message = $('#smart-ai-linker-message');
-            
-            // Disable button and show spinner
-            $button.prop('disabled', true);
-            $spinner.addClass('is-active');
-            $message.removeClass('error success').text(smartAILinker.i18n.clearing || 'Clearing links...');
-            
-            // Make AJAX request to clear links
-            $.ajax({
-                url: smartAILinker.ajaxUrl || ajaxurl,
-                type: 'POST',
-                data: {
-                    action: 'smart_ai_linker_clear_links',
-                    nonce: smartAILinker.nonce,
-                    post_id: smartAILinker.postId || 0
-                },
-                success: function(response) {
-                    if (response.success) {
-                        $message.removeClass('error').addClass('success')
-                            .text(response.data || 'Links cleared successfully');
-                        
-                        // Reset stats
-                        $('.smart-ai-stats .links-created').text('0');
-                        $('.smart-ai-stats .posts-processed').text('0');
-                        
-                        // Reload the page if this is a single post edit
-                        if (smartAILinker.postId) {
-                            setTimeout(function() {
-                                window.location.reload();
-                            }, 1000);
-                        }
-                    } else {
-                        $message.removeClass('success').addClass('error')
-                            .text(response.data || smartAILinker.i18n.error || 'An error occurred');
-                    }
-                },
-                error: function(xhr, status, error) {
-                    console.error('AJAX Error:', status, error);
-                    $message.removeClass('success').addClass('error')
-                        .text(smartAILinker.i18n.error || 'An error occurred');
-                },
-                complete: function() {
-                    $button.prop('disabled', false);
-                    $spinner.removeClass('is-active');
-                }
-            });
-        });
+        // Clear Links button removed: clearing is automatic on processing previously processed posts
 
         // Note: Bulk processing is now handled in the bulk-processing-center.php file
         // This prevents conflicts between different bulk processing implementations

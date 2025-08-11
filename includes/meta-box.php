@@ -12,7 +12,7 @@ if (!defined('ABSPATH'))
 add_action('add_meta_boxes', 'smart_ai_linker_add_meta_box');
 add_action('admin_enqueue_scripts', 'smart_ai_linker_admin_scripts');
 add_action('wp_ajax_smart_ai_linker_generate_links', 'smart_ai_linker_ajax_generate_links');
-add_action('wp_ajax_smart_ai_linker_clear_links', 'smart_ai_linker_ajax_clear_links');
+// Clear Links AJAX removed; clearing is now automatic before reprocessing
 
 /**
  * Add meta box to post editor
@@ -108,12 +108,8 @@ function smart_ai_linker_meta_box_callback($post)
             </button>
             <span class="spinner"></span>
 
-            <?php if ($processed) : ?>
-                <button type="button" id="smart-ai-linker-clear" class="button button-link"
-                    style="margin-left: 10px; color: #a00;">
-                    <?php _e('Clear Links', 'smart-ai-linker'); ?>
-                </button>
-            <?php endif; ?>
+            <?php // Clear Links button removed; clearing occurs automatically on reprocessing 
+            ?>
         </div>
 
         <div id="smart-ai-linker-message" style="margin-top: 10px;"></div>
@@ -274,44 +270,4 @@ function smart_ai_linker_ajax_generate_links()
 /**
  * Handle AJAX request to clear links
  */
-function smart_ai_linker_ajax_clear_links()
-{
-    // Verify nonce
-    if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'smart_ai_linker_nonce')) {
-        wp_send_json_error('Invalid nonce');
-    }
-
-    // Check user capabilities
-    if (!current_user_can('edit_post', $_POST['post_id'])) {
-        wp_send_json_error('Insufficient permissions');
-    }
-
-    $post_id = intval($_POST['post_id']);
-    $post = get_post($post_id);
-    if (!$post) {
-        wp_send_json_error('Post not found');
-    }
-
-    // Remove all smart-ai-link anchors from post content
-    $content = $post->post_content;
-
-    // Remove links with smart-ai-link class
-    $content = preg_replace('/<a\s+[^>]*class=["\']smart-ai-link["\'][^>]*>(.*?)<\/a>/i', '$1', $content);
-
-    // Update the post content
-    $result = wp_update_post(array(
-        'ID' => $post_id,
-        'post_content' => $content
-    ));
-
-    if (!is_wp_error($result) && $result !== 0) {
-        // Clear meta data
-        delete_post_meta($post_id, '_smart_ai_linker_processed');
-        delete_post_meta($post_id, '_smart_ai_linker_suggestions');
-        delete_post_meta($post_id, '_smart_ai_linker_added_links');
-
-        wp_send_json_success('Links cleared successfully');
-    } else {
-        wp_send_json_error('Failed to clear links from the post');
-    }
-}
+// Removed: smart_ai_linker_ajax_clear_links (clearing now occurs automatically in processing flow)

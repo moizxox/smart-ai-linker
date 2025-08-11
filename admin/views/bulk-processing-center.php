@@ -55,9 +55,7 @@
         <div class="control-group">
             <button id="bulk-select-all" class="button"><?php _e('Select All', 'smart-ai-linker'); ?></button>
             <button id="bulk-select-unprocessed" class="button"><?php _e('Select Unprocessed', 'smart-ai-linker'); ?></button>
-            <label style="margin-left:12px;">
-                <input type="checkbox" id="bulk-clear-before" /> <?php _e('Clear existing links before processing', 'smart-ai-linker'); ?>
-            </label>
+            <!-- Clear-before option removed: clearing now happens automatically for previously processed posts -->
         </div>
     </div>
 
@@ -831,13 +829,12 @@
 
                 if (startOnlySelected) {
                     const ids = Array.from(selectedIds);
-                    const clearBefore = $('#bulk-clear-before').is(':checked');
                     $.post(ajaxurl, {
                         action: 'smart_ai_bulk_queue_selected',
                         post_type: postType,
                         post_ids: ids,
                         mode: 'process',
-                        clear_before: clearBefore ? 1 : 0
+                        clear_before: 0
                     }, function(resp) {
                         if (resp.success) {
                             beginPolling(ids.length);

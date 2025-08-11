@@ -140,8 +140,13 @@ function smart_ai_linker_process_single_post($post_id, $options = array())
     // Options
     $clear_before = !empty($options['clear_before']);
 
-    // If requested, clear existing AI links and reset meta before reprocessing
-    if ($clear_before) {
+    // Clear existing AI links if requested OR if the post was previously processed OR if content already has smart-ai-link anchors
+    $previously_processed_meta = get_post_meta($post_id, '_smart_ai_linker_processed', true);
+    $already_has_smart_links = false;
+    if ($post) {
+        $already_has_smart_links = (bool) preg_match('/<a\s+[^>]*class=["\']([^"\']*\bsmart-ai-link\b[^"\']*)["\'][^>]*>/i', $post->post_content);
+    }
+    if ($clear_before || !empty($previously_processed_meta) || $already_has_smart_links) {
         try {
             $post_to_clear = get_post($post_id);
             if ($post_to_clear) {
