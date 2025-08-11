@@ -56,12 +56,8 @@
             <button id="bulk-select-all" class="button"><?php _e('Select All', 'smart-ai-linker'); ?></button>
             <button id="bulk-select-unprocessed" class="button"><?php _e('Select Unprocessed', 'smart-ai-linker'); ?></button>
             <label style="margin-left:12px;">
-                <input type="checkbox" id="bulk-clear-before" /> <?php _e('Clear existing links before reprocessing', 'smart-ai-linker'); ?>
+                <input type="checkbox" id="bulk-clear-before" /> <?php _e('Clear existing links before processing', 'smart-ai-linker'); ?>
             </label>
-            <label>
-                <input type="checkbox" id="bulk-force" /> <?php _e('Ignore 24h cooldown', 'smart-ai-linker'); ?>
-            </label>
-            <button id="bulk-reprocess-selected" class="button button-primary"><?php _e('Reprocess Selected', 'smart-ai-linker'); ?></button>
         </div>
     </div>
 
@@ -402,6 +398,7 @@
                     } else {
                         selectedIds.delete(id);
                     }
+                    updateButtonStates();
                 });
             }
 
@@ -429,7 +426,8 @@
                     $('#progress-container').hide();
                     $('#processing-status').show();
                 } else {
-                    const canStart = ((typeof fixedTotal === 'number') ? fixedTotal : currentProgress.total) > 0;
+                    const totalCount = (typeof fixedTotal === 'number') ? fixedTotal : currentProgress.total;
+                    const canStart = (selectedIds.size > 0) || (totalCount > 0);
                     $('#bulk-center-start').prop('disabled', !canStart).show();
                     $('#bulk-center-stop').hide();
                     $('#bulk-center-resume').hide();
@@ -737,77 +735,123 @@
             // Enhanced start processing function
             $('#bulk-center-start').on('click', function() {
                 if (isProcessing) return;
+                const selectedCount = selectedIds.size;
                 const startableTotal = (typeof fixedTotal === 'number') ? fixedTotal : currentProgress.total;
-                if (!startableTotal) return;
+                if (!selectedCount && !startableTotal) return;
 
                 isProcessing = true;
                 updateButtonStates();
                 clearErrors();
                 processingStartTime = new Date();
 
-                // Start processing
-                $.post(ajaxurl, {
-                    action: 'smart_ai_bulk_start',
-                    post_type: postType
-                }, function(response) {
-                    if (response.success) {
-                        // Start polling and processing
+                // If there are selected posts, queue only those; otherwise, start full bulk
+                const startOnlySelected = selectedCount > 0;
+                let singleSelectionAlertShown = false;
+
+                const beginPolling = function(selectionTotal) {
+                    if (!polling) {
                         polling = setInterval(function() {
                             $.post(ajaxurl, {
                                 action: 'smart_ai_bulk_next'
                             }, function(nextResp) {
                                 if (nextResp.success) {
-                                    // Update progress immediately
                                     if (nextResp.data.progress) {
                                         updateProgressDetails(nextResp.data.progress);
                                     }
 
+                                    // Update current post info if available
+                                    if (nextResp.data.current_post) {
+                                        $('#current-post').text(nextResp.data.current_post);
+                                    }
+
+                                    // If exactly one selected, alert as soon as it is verified processed
+                                    if (startOnlySelected && selectionTotal === 1 && !singleSelectionAlertShown) {
+                                        if (nextResp.data.verified_status === 'processed') {
+                                            singleSelectionAlertShown = true;
+                                            alert('Post processed!');
+                                        }
+                                    }
+
                                     if (nextResp.data.done) {
                                         clearInterval(polling);
+                                        polling = null;
                                         isProcessing = false;
                                         updateButtonStates();
-                                        alert('Bulk processing completed!');
-                                    } else {
-                                        // Update current post info if available
-                                        if (nextResp.data.current_post) {
-                                            $('#current-post').text(nextResp.data.current_post);
+                                        if (startOnlySelected) {
+                                            alert(selectionTotal > 1 ? 'Selected posts processed!' : (singleSelectionAlertShown ? '' : 'Post processed!'));
+                                        } else {
+                                            alert('Bulk processing completed!');
                                         }
-
-                                        // Show verification status if available
-                                        if (nextResp.data.verified_status) {
-                                            console.log(`Post ${nextResp.data.current_post_id} verified as: ${nextResp.data.verified_status}`);
-                                            if (nextResp.data.verified_status === 'processed' && nextResp.data.current_post_id) {
-                                                const processedId = parseInt(nextResp.data.current_post_id, 10);
-                                                postList = postList.filter(function(post) {
-                                                    return parseInt(post.id, 10) !== processedId;
-                                                });
-                                                renderList({});
-                                            }
+                                    } else {
+                                        // Remove processed posts from visible list to keep UI in sync
+                                        if (nextResp.data.verified_status === 'processed' && nextResp.data.current_post_id) {
+                                            const processedId = parseInt(nextResp.data.current_post_id, 10);
+                                            postList = postList.filter(function(post) {
+                                                return parseInt(post.id, 10) !== processedId;
+                                            });
+                                            selectedIds.delete(processedId);
+                                            renderList({});
                                         }
                                     }
                                 } else {
                                     clearInterval(polling);
+                                    polling = null;
                                     isProcessing = false;
                                     updateButtonStates();
                                     showError('Processing error: ' + (nextResp.data || 'Unknown error'));
                                 }
                             }).fail(function() {
                                 clearInterval(polling);
+                                polling = null;
                                 isProcessing = false;
                                 updateButtonStates();
                                 showError('Processing failed. Please try again.');
                             });
                         }, 2000);
-                    } else {
+                    }
+                };
+
+                if (startOnlySelected) {
+                    const ids = Array.from(selectedIds);
+                    const clearBefore = $('#bulk-clear-before').is(':checked');
+                    $.post(ajaxurl, {
+                        action: 'smart_ai_bulk_queue_selected',
+                        post_type: postType,
+                        post_ids: ids,
+                        mode: 'process',
+                        clear_before: clearBefore ? 1 : 0
+                    }, function(resp) {
+                        if (resp.success) {
+                            beginPolling(ids.length);
+                        } else {
+                            isProcessing = false;
+                            updateButtonStates();
+                            showError(resp.data || 'Failed to queue selected posts');
+                        }
+                    }).fail(function() {
                         isProcessing = false;
                         updateButtonStates();
-                        showError('Failed to start processing: ' + (response.data || 'Unknown error'));
-                    }
-                }).fail(function() {
-                    isProcessing = false;
-                    updateButtonStates();
-                    showError('Failed to start processing. Please try again.');
-                });
+                        showError('Failed to queue selected posts. Please try again.');
+                    });
+                } else {
+                    // Start processing all
+                    $.post(ajaxurl, {
+                        action: 'smart_ai_bulk_start',
+                        post_type: postType
+                    }, function(response) {
+                        if (response.success) {
+                            beginPolling(0);
+                        } else {
+                            isProcessing = false;
+                            updateButtonStates();
+                            showError('Failed to start processing: ' + (response.data || 'Unknown error'));
+                        }
+                    }).fail(function() {
+                        isProcessing = false;
+                        updateButtonStates();
+                        showError('Failed to start processing. Please try again.');
+                    });
+                }
             });
 
             // Enhanced stop processing function
@@ -952,85 +996,17 @@
                     selectedIds.add(parseInt(p.id, 10));
                 });
                 renderList({});
+                updateButtonStates();
             });
             $('#bulk-select-unprocessed').on('click', function() {
                 postList.forEach(function(p) {
                     if (p.status !== 'processed') selectedIds.add(parseInt(p.id, 10));
                 });
                 renderList({});
+                updateButtonStates();
             });
 
-            // Reprocess selected
-            $('#bulk-reprocess-selected').on('click', function() {
-                if (isProcessing) {
-                    showError('Processing is already running. Please wait or stop it first.');
-                    return;
-                }
-                const ids = Array.from(selectedIds);
-                if (!ids.length) {
-                    showError('Please select at least one post.');
-                    return;
-                }
-                const clearBefore = $('#bulk-clear-before').is(':checked');
-                const force = $('#bulk-force').is(':checked');
-                $.post(ajaxurl, {
-                    action: 'smart_ai_bulk_queue_selected',
-                    post_type: postType,
-                    post_ids: ids,
-                    mode: 'reprocess',
-                    clear_before: clearBefore ? 1 : 0,
-                    force: force ? 1 : 0
-                }, function(resp) {
-                    if (resp.success) {
-                        // Start the processing loop just like normal start
-                        isProcessing = true;
-                        updateButtonStates();
-                        if (!polling) {
-                            polling = setInterval(function() {
-                                $.post(ajaxurl, {
-                                    action: 'smart_ai_bulk_next'
-                                }, function(nextResp) {
-                                    if (nextResp.success) {
-                                        if (nextResp.data.progress) {
-                                            updateProgressDetails(nextResp.data.progress);
-                                        }
-                                        if (nextResp.data.done) {
-                                            clearInterval(polling);
-                                            polling = null;
-                                            isProcessing = false;
-                                            updateButtonStates();
-                                            alert('Bulk processing completed!');
-                                        } else if (nextResp.data.verified_status === 'processed' && nextResp.data.current_post_id) {
-                                            const processedId = parseInt(nextResp.data.current_post_id, 10);
-                                            postList = postList.filter(function(post) {
-                                                return parseInt(post.id, 10) !== processedId;
-                                            });
-                                            selectedIds.delete(processedId);
-                                            renderList({});
-                                        }
-                                    } else {
-                                        clearInterval(polling);
-                                        polling = null;
-                                        isProcessing = false;
-                                        updateButtonStates();
-                                        showError('Processing error: ' + (nextResp.data || 'Unknown error'));
-                                    }
-                                }).fail(function() {
-                                    clearInterval(polling);
-                                    polling = null;
-                                    isProcessing = false;
-                                    updateButtonStates();
-                                    showError('Processing failed. Please try again.');
-                                });
-                            }, 2000);
-                        }
-                    } else {
-                        showError(resp.data || 'Failed to queue selected posts');
-                    }
-                }).fail(function() {
-                    showError('Failed to queue selected posts. Please try again.');
-                });
-            });
+            // Reprocess selected functionality removed
 
             // Add resume processing handler
             $('#bulk-center-resume').on('click', function() {

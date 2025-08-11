@@ -138,23 +138,7 @@ function smart_ai_linker_process_single_post($post_id, $options = array())
     }
 
     // Options
-    $force = !empty($options['force']);
     $clear_before = !empty($options['clear_before']);
-
-    // Check if already processed recently (within last 24 hours) unless force is enabled
-    $last_processed = get_post_meta($post_id, '_smart_ai_linker_processed', true);
-    if (!$force && $last_processed) {
-        $last_processed_time = strtotime($last_processed);
-        $twenty_four_hours_ago = time() - (24 * 60 * 60);
-
-        if ($last_processed_time > $twenty_four_hours_ago) {
-            error_log("[Smart AI] Post {$post_id} skipped: already processed within last 24 hours");
-            return [
-                'status' => 'skipped',
-                'reason' => 'Already processed within last 24 hours'
-            ];
-        }
-    }
 
     // If requested, clear existing AI links and reset meta before reprocessing
     if ($clear_before) {
