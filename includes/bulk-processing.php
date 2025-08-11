@@ -10,86 +10,9 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-/**
- * Add bulk action to process multiple posts
- */
-function smart_ai_linker_register_bulk_actions($bulk_actions)
-{
-    $bulk_actions['smart_ai_linker_generate_links'] = __('Generate AI Links', 'smart-ai-linker');
-    return $bulk_actions;
-}
-add_filter('bulk_actions-edit-post', 'smart_ai_linker_register_bulk_actions');
-add_filter('bulk_actions-edit-page', 'smart_ai_linker_register_bulk_actions');
+// Removed legacy Bulk Actions registration for "Generate AI Links" in favor of Bulk Processing Center UI
 
-/**
- * Handle the bulk action with improved error handling and retry logic
- */
-function smart_ai_linker_bulk_action_handler($redirect_to, $doaction, $post_ids)
-{
-    if ($doaction !== 'smart_ai_linker_generate_links') {
-        return $redirect_to;
-    }
-
-    $processed = 0;
-    $skipped = 0;
-    $errors = [];
-    $skipped_details = [];
-
-    // Include necessary files if not already loaded
-    if (!function_exists('smart_ai_linker_get_ai_link_suggestions')) {
-        require_once SMARTLINK_AI_PATH . 'api/deepseek-client.php';
-    }
-    if (!function_exists('smart_ai_linker_insert_links_into_post')) {
-        require_once SMARTLINK_AI_PATH . 'includes/internal-linking.php';
-    }
-
-    // Process posts in batches to avoid timeouts
-    $batch_size = 5;
-    $total_posts = count($post_ids);
-
-    for ($i = 0; $i < $total_posts; $i += $batch_size) {
-        $batch = array_slice($post_ids, $i, $batch_size);
-
-        foreach ($batch as $post_id) {
-            $result = smart_ai_linker_process_single_post($post_id);
-
-            switch ($result['status']) {
-                case 'processed':
-                    $processed++;
-                    break;
-                case 'skipped':
-                    $skipped++;
-                    $skipped_details[] = $result['reason'];
-                    break;
-                case 'error':
-                    $errors[] = "Post ID {$post_id}: " . $result['reason'];
-                    $skipped++;
-                    $skipped_details[] = "Post ID {$post_id}: " . $result['reason'];
-                    break;
-            }
-        }
-
-        // Add a small delay between batches to prevent server overload
-        if ($i + $batch_size < $total_posts) {
-            usleep(1000000); // 1 second delay
-        }
-    }
-
-    // Add results to the redirect URL
-    $redirect_to = add_query_arg(
-        array(
-            'smart_ai_links_processed' => $processed,
-            'smart_ai_links_skipped' => $skipped,
-            'smart_ai_links_errors' => urlencode(json_encode($errors)),
-            'smart_ai_links_skipped_details' => urlencode(json_encode($skipped_details)),
-        ),
-        $redirect_to
-    );
-
-    return $redirect_to;
-}
-add_filter('handle_bulk_actions-edit-post', 'smart_ai_linker_bulk_action_handler', 10, 3);
-add_filter('handle_bulk_actions-edit-page', 'smart_ai_linker_bulk_action_handler', 10, 3);
+// Removed legacy Bulk Actions handler – processing is centralized in background queue endpoints
 
 /**
  * Process a single post with comprehensive error handling and retry logic
@@ -281,72 +204,7 @@ function smart_ai_linker_process_single_post($post_id, $options = array())
     }
 }
 
-/**
- * Show admin notice after bulk processing with improved messaging
- */
-function smart_ai_linker_bulk_admin_notice()
-{
-    if (!empty($_REQUEST['smart_ai_links_processed']) || !empty($_REQUEST['smart_ai_links_skipped'])) {
-        $processed = isset($_REQUEST['smart_ai_links_processed']) ? intval($_REQUEST['smart_ai_links_processed']) : 0;
-        $skipped = isset($_REQUEST['smart_ai_links_skipped']) ? intval($_REQUEST['smart_ai_links_skipped']) : 0;
-        $errors = [];
-        $skipped_details = [];
-
-        if (!empty($_REQUEST['smart_ai_links_errors'])) {
-            $errors = json_decode(urldecode($_REQUEST['smart_ai_links_errors']), true);
-        }
-        if (!empty($_REQUEST['smart_ai_links_skipped_details'])) {
-            $skipped_details = json_decode(urldecode($_REQUEST['smart_ai_links_skipped_details']), true);
-        }
-
-        $message = '';
-        $notice_class = 'notice-info';
-
-        if ($processed > 0) {
-            $message .= sprintf(
-                _n('%d post was successfully processed with AI links.', '%d posts were successfully processed with AI links.', $processed, 'smart-ai-linker'),
-                $processed
-            );
-            $message .= ' ';
-            $notice_class = 'notice-success';
-        }
-
-        if ($skipped > 0) {
-            $message .= sprintf(
-                _n('%d post was skipped.', '%d posts were skipped.', $skipped, 'smart-ai-linker'),
-                $skipped
-            );
-        }
-
-        if (!empty($errors)) {
-            $message .= '<br><strong>Errors encountered:</strong><ul style="margin:8px 0 0 20px;">';
-            foreach (array_slice($errors, 0, 5) as $error) {
-                $message .= '<li>' . esc_html($error) . '</li>';
-            }
-            if (count($errors) > 5) {
-                $message .= '<li>... and ' . (count($errors) - 5) . ' more errors</li>';
-            }
-            $message .= '</ul>';
-            $notice_class = 'notice-warning';
-        }
-
-        if (!empty($skipped_details)) {
-            $message .= '<br><strong>Skipped posts:</strong><ul style="margin:8px 0 0 20px;">';
-            foreach (array_slice($skipped_details, 0, 5) as $detail) {
-                $message .= '<li>' . esc_html($detail) . '</li>';
-            }
-            if (count($skipped_details) > 5) {
-                $message .= '<li>... and ' . (count($skipped_details) - 5) . ' more skipped posts</li>';
-            }
-            $message .= '</ul>';
-        }
-
-        if (!empty($message)) {
-            echo '<div class="notice ' . $notice_class . ' is-dismissible"><p>' . $message . '</p></div>';
-        }
-    }
-}
-add_action('admin_notices', 'smart_ai_linker_bulk_admin_notice');
+// Removed admin notice for legacy Bulk Actions flow
 
 /**
  * AJAX handler for processing all unprocessed posts with improved strategy
