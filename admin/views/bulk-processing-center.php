@@ -542,6 +542,15 @@
                                                 return !set.has(parseInt(post.id, 10));
                                             });
                                         }
+                                        // Client-side guard: also drop excluded posts if provided globally
+                                        if (Array.isArray(window.smartAIExcludedPosts) && window.smartAIExcludedPosts.length) {
+                                            const exSet = new Set(window.smartAIExcludedPosts.map(function(i) {
+                                                return parseInt(i, 10);
+                                            }));
+                                            postList = postList.filter(function(post) {
+                                                return !exSet.has(parseInt(post.id, 10));
+                                            });
+                                        }
                                         // If we resumed and the mode was selected IDs, re-check those checkboxes
                                         const mode = response.data.progress && response.data.progress.mode;
                                         const selectedOnServer = response.data.progress && Array.isArray(response.data.progress.selected_ids) ? response.data.progress.selected_ids : [];

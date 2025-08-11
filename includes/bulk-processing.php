@@ -354,6 +354,11 @@ add_action('wp_ajax_smart_ai_bulk_get_unprocessed', function () {
         'order' => 'DESC',
     );
 
+    // Exclude posts marked as excluded from internal linking
+    $excluded_posts = get_option('smart_ai_linker_excluded_posts', array());
+    if (!empty($excluded_posts) && is_array($excluded_posts)) {
+        $args['post__not_in'] = array_map('intval', $excluded_posts);
+    }
     $unprocessed = get_posts($args);
     $posts_data = [];
 
@@ -402,6 +407,12 @@ add_action('wp_ajax_smart_ai_bulk_get_posts', function () {
         $args['meta_query'] = array(
             array('key' => '_smart_ai_linker_processed', 'compare' => 'EXISTS')
         );
+    }
+
+    // Exclude posts marked as excluded from internal linking
+    $excluded_posts = get_option('smart_ai_linker_excluded_posts', array());
+    if (!empty($excluded_posts) && is_array($excluded_posts)) {
+        $args['post__not_in'] = array_map('intval', $excluded_posts);
     }
 
     $posts = get_posts($args);
