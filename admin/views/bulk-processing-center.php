@@ -510,11 +510,8 @@
                                     $('#bulk-center-stop').hide();
                                     showError('Processing appears to be stuck. Click "Resume Processing" to continue.');
                                 } else if (queueCount > 0) {
-                                    // If we have progress but no queue, try to resume processing
-                                    if (progress.total > 0 && (progress.processed + progress.skipped) < progress.total) {
-                                        console.log('Attempting to resume processing...');
-                                        resumeProcessing();
-                                    }
+                                    // Don't auto-resume, let the main polling handle it
+                                    console.log('Queue has items, will be handled by main polling');
                                 }
                             }
 
@@ -565,8 +562,9 @@
                                 });
                             }
 
-                            // Start polling for updates
+                            // Start polling for updates (but avoid duplicate polling)
                             if (!polling) {
+                                console.log('Starting status polling');
                                 polling = setInterval(pollStatus, 2000);
                             }
                         } else {
@@ -588,45 +586,52 @@
             function resumeProcessing() {
                 console.log('Resuming processing...');
 
-                // Start the processing loop
-                if (!polling) {
-                    polling = setInterval(function() {
-                        $.post(ajaxurl, {
-                            action: 'smart_ai_bulk_next'
-                        }, function(nextResp) {
-                            if (nextResp.success) {
-                                // Update progress immediately
-                                if (nextResp.data.progress) {
-                                    updateProgressDetails(nextResp.data.progress);
-                                }
+                // Don't start another polling interval if one already exists
+                if (polling) {
+                    console.log('Polling already active, not starting another');
+                    return;
+                }
 
-                                if (nextResp.data.done) {
-                                    clearInterval(polling);
-                                    isProcessing = false;
-                                    updateButtonStates();
-                                    alert('Bulk processing completed!');
-                                } else {
-                                    // Update current post info if available
-                                    if (nextResp.data.current_post) {
-                                        $('#current-post').text(nextResp.data.current_post);
-                                    }
-                                }
-                            } else {
-                                console.log('Processing error:', nextResp.data);
+                // Start the processing loop
+                polling = setInterval(function() {
+                    $.post(ajaxurl, {
+                        action: 'smart_ai_bulk_next'
+                    }, function(nextResp) {
+                        if (nextResp.success) {
+                            // Update progress immediately
+                            if (nextResp.data.progress) {
+                                updateProgressDetails(nextResp.data.progress);
+                            }
+
+                            if (nextResp.data.done) {
                                 clearInterval(polling);
+                                polling = null;
                                 isProcessing = false;
                                 updateButtonStates();
-                                showError('Processing error: ' + (nextResp.data || 'Unknown error'));
+                                // Don't show alert here - let the main polling handle it
+                            } else {
+                                // Update current post info if available
+                                if (nextResp.data.current_post) {
+                                    $('#current-post').text(nextResp.data.current_post);
+                                }
                             }
-                        }).fail(function() {
-                            console.log('Processing request failed');
+                        } else {
+                            console.log('Processing error:', nextResp.data);
                             clearInterval(polling);
+                            polling = null;
                             isProcessing = false;
                             updateButtonStates();
-                            showError('Processing failed. Please try again.');
-                        });
-                    }, 2000);
-                }
+                            showError('Processing error: ' + (nextResp.data || 'Unknown error'));
+                        }
+                    }).fail(function() {
+                        console.log('Processing request failed');
+                        clearInterval(polling);
+                        polling = null;
+                        isProcessing = false;
+                        updateButtonStates();
+                        showError('Processing failed. Please try again.');
+                    });
+                }, 2000);
             }
 
             // Enhanced poll status function
@@ -654,11 +659,10 @@
                             updateButtonStates();
                         } else {
                             clearInterval(polling);
+                            polling = null;
                             isProcessing = false;
                             updateButtonStates();
-                            if (response.data.progress.processed > 0) {
-                                alert('Bulk processing completed!');
-                            }
+                            // Don't show alert here - handled by main polling logic
                         }
                     }
                 }).fail(function() {
@@ -721,8 +725,9 @@
                             }
                             updateButtonStates();
 
-                            // Start polling
+                            // Start polling (avoid duplicates)
                             if (!polling) {
+                                console.log('Starting post-type polling');
                                 polling = setInterval(pollStatus, 2000);
                             }
                         } else {
@@ -774,66 +779,69 @@
                 let singleSelectionAlertShown = false;
 
                 const beginPolling = function(selectionTotal) {
-                    if (!polling) {
-                        polling = setInterval(function() {
-                            $.post(ajaxurl, {
-                                action: 'smart_ai_bulk_next'
-                            }, function(nextResp) {
-                                if (nextResp.success) {
-                                    if (nextResp.data.progress) {
-                                        updateProgressDetails(nextResp.data.progress);
-                                    }
+                    if (polling) {
+                        console.log('Polling already active, clearing existing');
+                        clearInterval(polling);
+                        polling = null;
+                    }
 
-                                    // Update current post info if available
-                                    if (nextResp.data.current_post) {
-                                        $('#current-post').text(nextResp.data.current_post);
-                                    }
+                    console.log('Starting main processing poll for', selectionTotal > 0 ? selectionTotal + ' selected posts' : 'all posts');
+                    polling = setInterval(function() {
+                        $.post(ajaxurl, {
+                            action: 'smart_ai_bulk_next'
+                        }, function(nextResp) {
+                            if (nextResp.success) {
+                                if (nextResp.data.progress) {
+                                    updateProgressDetails(nextResp.data.progress);
+                                }
 
-                                    // If exactly one selected, alert as soon as it is verified processed
-                                    if (startOnlySelected && selectionTotal === 1 && !singleSelectionAlertShown) {
-                                        if (nextResp.data.verified_status === 'processed') {
-                                            singleSelectionAlertShown = true;
-                                            alert('Post processed!');
-                                        }
-                                    }
+                                // Update current post info if available
+                                if (nextResp.data.current_post) {
+                                    $('#current-post').text(nextResp.data.current_post);
+                                }
 
-                                    if (nextResp.data.done) {
-                                        clearInterval(polling);
-                                        polling = null;
-                                        isProcessing = false;
-                                        updateButtonStates();
-                                        if (startOnlySelected) {
-                                            alert(selectionTotal > 1 ? 'Selected posts processed!' : (singleSelectionAlertShown ? '' : 'Post processed!'));
-                                        } else {
-                                            alert('Bulk processing completed!');
-                                        }
-                                    } else {
-                                        // Remove processed posts from visible list to keep UI in sync
-                                        if (nextResp.data.verified_status === 'processed' && nextResp.data.current_post_id) {
-                                            const processedId = parseInt(nextResp.data.current_post_id, 10);
-                                            postList = postList.filter(function(post) {
-                                                return parseInt(post.id, 10) !== processedId;
-                                            });
-                                            selectedIds.delete(processedId);
-                                            renderList({});
-                                        }
-                                    }
-                                } else {
+                                if (nextResp.data.done) {
                                     clearInterval(polling);
                                     polling = null;
                                     isProcessing = false;
                                     updateButtonStates();
-                                    showError('Processing error: ' + (nextResp.data || 'Unknown error'));
+
+                                    // Show appropriate completion alert
+                                    if (startOnlySelected) {
+                                        if (selectionTotal === 1) {
+                                            alert('Post processed!');
+                                        } else {
+                                            alert('Selected posts processed!');
+                                        }
+                                    } else {
+                                        alert('Bulk processing completed!');
+                                    }
+                                } else {
+                                    // Remove processed posts from visible list to keep UI in sync
+                                    if (nextResp.data.verified_status === 'processed' && nextResp.data.current_post_id) {
+                                        const processedId = parseInt(nextResp.data.current_post_id, 10);
+                                        postList = postList.filter(function(post) {
+                                            return parseInt(post.id, 10) !== processedId;
+                                        });
+                                        selectedIds.delete(processedId);
+                                        renderList({});
+                                    }
                                 }
-                            }).fail(function() {
+                            } else {
                                 clearInterval(polling);
                                 polling = null;
                                 isProcessing = false;
                                 updateButtonStates();
-                                showError('Processing failed. Please try again.');
-                            });
-                        }, 2000);
-                    }
+                                showError('Processing error: ' + (nextResp.data || 'Unknown error'));
+                            }
+                        }).fail(function() {
+                            clearInterval(polling);
+                            polling = null;
+                            isProcessing = false;
+                            updateButtonStates();
+                            showError('Processing failed. Please try again.');
+                        });
+                    }, 2000);
                 };
 
                 if (startOnlySelected) {
