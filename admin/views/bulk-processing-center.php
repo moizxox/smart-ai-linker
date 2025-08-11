@@ -22,7 +22,13 @@
                 }
                 ?>
             </select>
-            <button id="bulk-center-load-posts" class="button"><?php _e('Load Unprocessed', 'smart-ai-linker'); ?></button>
+            <label for="bulk-center-filter"><strong><?php _e('Show:', 'smart-ai-linker'); ?></strong></label>
+            <select id="bulk-center-filter">
+                <option value="unprocessed"><?php _e('Unprocessed', 'smart-ai-linker'); ?></option>
+                <option value="all"><?php _e('All', 'smart-ai-linker'); ?></option>
+                <option value="processed"><?php _e('Processed only', 'smart-ai-linker'); ?></option>
+            </select>
+            <button id="bulk-center-load-posts" class="button"><?php _e('Load', 'smart-ai-linker'); ?></button>
             <button id="bulk-center-refresh" class="button"><?php _e('Refresh Panel', 'smart-ai-linker'); ?></button>
         </div>
 
@@ -42,6 +48,20 @@
                 <span id="current-processing-post-type"></span>
                 <span id="processing-time"></span>
             </div>
+        </div>
+    </div>
+
+    <div class="smart-ai-bulk-controls">
+        <div class="control-group">
+            <button id="bulk-select-all" class="button"><?php _e('Select All', 'smart-ai-linker'); ?></button>
+            <button id="bulk-select-unprocessed" class="button"><?php _e('Select Unprocessed', 'smart-ai-linker'); ?></button>
+            <label style="margin-left:12px;">
+                <input type="checkbox" id="bulk-clear-before" /> <?php _e('Clear existing links before reprocessing', 'smart-ai-linker'); ?>
+            </label>
+            <label>
+                <input type="checkbox" id="bulk-force" /> <?php _e('Ignore 24h cooldown', 'smart-ai-linker'); ?>
+            </label>
+            <button id="bulk-reprocess-selected" class="button button-primary"><?php _e('Reprocess Selected', 'smart-ai-linker'); ?></button>
         </div>
     </div>
 
@@ -346,6 +366,8 @@
             // Minimal UI: avoid heavy per-post rendering
             let hasLoadedPostsOnResume = false;
             let fixedTotal = null;
+            let currentFilter = 'unprocessed';
+            let selectedIds = new Set();
 
             function updateStats() {
                 $('#total-posts').text((typeof fixedTotal === 'number') ? fixedTotal : (currentProgress.total || 0));
@@ -353,27 +375,34 @@
             }
 
             function renderList(statuses = {}) {
-                if (statuses && Object.keys(statuses).length > 0) {
-                    postList = postList.filter(function(post) {
-                        return statuses[post.id] !== 'processed';
-                    });
-                }
                 if (postList.length === 0) {
                     $('#bulk-center-list-container').html('<div class="empty-state"><p>No unprocessed posts found.</p></div>');
                     return;
                 }
                 let html = '<div class="post-list">';
                 postList.forEach(function(post) {
+                    const checked = selectedIds.has(parseInt(post.id, 10)) ? 'checked' : '';
+                    const statusLabel = post.status ? `<span class="post-status ${post.status === 'processed' ? 'status-processed' : 'status-queued'}">${post.status}</span>` : '';
                     html += `
                     <div class="post-item" data-id="${post.id}">
+                        <input type="checkbox" class="post-select" data-id="${post.id}" ${checked} />
                         <div class="post-info">
-                            <div class="post-title">${$('<div>').text(post.title).html()}</div>
+                            <div class="post-title">${$('<div>').text(post.title).html()} ${statusLabel}</div>
                             <div class="post-meta">ID: ${post.id} | ${post.word_count} words</div>
                         </div>
                     </div>`;
                 });
                 html += '</div>';
                 $('#bulk-center-list-container').html(html);
+                // Bind checkbox changes
+                $('.post-select').off('change').on('change', function() {
+                    const id = parseInt($(this).data('id'), 10);
+                    if ($(this).is(':checked')) {
+                        selectedIds.add(id);
+                    } else {
+                        selectedIds.delete(id);
+                    }
+                });
             }
 
             // Minimal UI: per-post stability handling removed
@@ -617,38 +646,31 @@
             // Enhanced load unprocessed posts function
             function loadUnprocessedPosts() {
                 postType = $('#bulk-center-post-type').val();
+                currentFilter = $('#bulk-center-filter').val() || 'unprocessed';
                 $('#bulk-center-list-container').html('<div class="empty-state"><p>Loading...</p></div>');
                 $('#bulk-center-start').prop('disabled', true);
 
                 $.post(ajaxurl, {
-                    action: 'smart_ai_bulk_get_unprocessed',
-                    post_type: postType
+                    action: 'smart_ai_bulk_get_posts',
+                    post_type: postType,
+                    filter: currentFilter,
+                    per_page: 200,
+                    page: 1
                 }, function(response) {
-                    if (response.success && response.data.length > 0) {
-                        fixedTotal = response.data.length;
+                    if (response.success && response.data && Array.isArray(response.data.items) && response.data.items.length > 0) {
+                        postList = response.data.items;
+                        fixedTotal = postList.length;
                         currentProgress.total = fixedTotal;
-                        postList = response.data;
-                        // Remove any items already processed using processed_ids snapshot if available via status check
-                        const processedIds = Array.isArray(response.data.processed_ids) ? response.data.processed_ids : [];
-                        if (processedIds.length) {
-                            const set = new Set(processedIds.map(function(i) {
-                                return parseInt(i, 10);
-                            }));
-                            postList = postList.filter(function(post) {
-                                return !set.has(parseInt(post.id, 10));
-                            });
-                        }
                         renderList({});
                         updateButtonStates();
                         clearErrors();
-                    } else if (response.success && response.data.length === 0) {
+                    } else if (response.success) {
                         postList = [];
                         fixedTotal = 0;
                         currentProgress.total = 0;
                         renderList({});
                         updateButtonStates();
                     } else {
-                        // Handle error response
                         showError(response.data || 'Failed to load posts');
                         postList = [];
                         updateButtonStates();
@@ -869,6 +891,12 @@
 
             // Add the load posts button handler
             $('#bulk-center-load-posts').on('click', function() {
+                selectedIds.clear();
+                loadUnprocessedPosts();
+            });
+
+            $('#bulk-center-filter').on('change', function() {
+                selectedIds.clear();
                 loadUnprocessedPosts();
             });
 
@@ -887,11 +915,14 @@
                     postType = $('#bulk-center-post-type').val();
                     $('#bulk-center-list-container').html('<div class="empty-state"><p>Refreshing...</p></div>');
                     $.post(ajaxurl, {
-                        action: 'smart_ai_bulk_get_unprocessed',
-                        post_type: postType
+                        action: 'smart_ai_bulk_get_posts',
+                        post_type: postType,
+                        filter: currentFilter,
+                        per_page: 200,
+                        page: 1
                     }, function(listResp) {
-                        if (listResp.success && Array.isArray(listResp.data)) {
-                            postList = listResp.data;
+                        if (listResp.success && listResp.data && Array.isArray(listResp.data.items)) {
+                            postList = listResp.data.items;
                             if (processedIds.length) {
                                 const set = new Set(processedIds);
                                 postList = postList.filter(function(post) {
@@ -912,6 +943,92 @@
                     }).fail(function() {
                         $('#bulk-center-list-container').html('<div class="empty-state"><p>Error refreshing. Please try again.</p></div>');
                     });
+                });
+            });
+
+            // Selection helpers
+            $('#bulk-select-all').on('click', function() {
+                postList.forEach(function(p) {
+                    selectedIds.add(parseInt(p.id, 10));
+                });
+                renderList({});
+            });
+            $('#bulk-select-unprocessed').on('click', function() {
+                postList.forEach(function(p) {
+                    if (p.status !== 'processed') selectedIds.add(parseInt(p.id, 10));
+                });
+                renderList({});
+            });
+
+            // Reprocess selected
+            $('#bulk-reprocess-selected').on('click', function() {
+                if (isProcessing) {
+                    showError('Processing is already running. Please wait or stop it first.');
+                    return;
+                }
+                const ids = Array.from(selectedIds);
+                if (!ids.length) {
+                    showError('Please select at least one post.');
+                    return;
+                }
+                const clearBefore = $('#bulk-clear-before').is(':checked');
+                const force = $('#bulk-force').is(':checked');
+                $.post(ajaxurl, {
+                    action: 'smart_ai_bulk_queue_selected',
+                    post_type: postType,
+                    post_ids: ids,
+                    mode: 'reprocess',
+                    clear_before: clearBefore ? 1 : 0,
+                    force: force ? 1 : 0
+                }, function(resp) {
+                    if (resp.success) {
+                        // Start the processing loop just like normal start
+                        isProcessing = true;
+                        updateButtonStates();
+                        if (!polling) {
+                            polling = setInterval(function() {
+                                $.post(ajaxurl, {
+                                    action: 'smart_ai_bulk_next'
+                                }, function(nextResp) {
+                                    if (nextResp.success) {
+                                        if (nextResp.data.progress) {
+                                            updateProgressDetails(nextResp.data.progress);
+                                        }
+                                        if (nextResp.data.done) {
+                                            clearInterval(polling);
+                                            polling = null;
+                                            isProcessing = false;
+                                            updateButtonStates();
+                                            alert('Bulk processing completed!');
+                                        } else if (nextResp.data.verified_status === 'processed' && nextResp.data.current_post_id) {
+                                            const processedId = parseInt(nextResp.data.current_post_id, 10);
+                                            postList = postList.filter(function(post) {
+                                                return parseInt(post.id, 10) !== processedId;
+                                            });
+                                            selectedIds.delete(processedId);
+                                            renderList({});
+                                        }
+                                    } else {
+                                        clearInterval(polling);
+                                        polling = null;
+                                        isProcessing = false;
+                                        updateButtonStates();
+                                        showError('Processing error: ' + (nextResp.data || 'Unknown error'));
+                                    }
+                                }).fail(function() {
+                                    clearInterval(polling);
+                                    polling = null;
+                                    isProcessing = false;
+                                    updateButtonStates();
+                                    showError('Processing failed. Please try again.');
+                                });
+                            }, 2000);
+                        }
+                    } else {
+                        showError(resp.data || 'Failed to queue selected posts');
+                    }
+                }).fail(function() {
+                    showError('Failed to queue selected posts. Please try again.');
                 });
             });
 
