@@ -8,12 +8,6 @@ if (!defined('ABSPATH'))
  * Adds a meta box to the post editor for manual link generation.
  */
 
-// Add meta box to post editor
-add_action('add_meta_boxes', 'smart_ai_linker_add_meta_box');
-add_action('admin_enqueue_scripts', 'smart_ai_linker_admin_scripts');
-add_action('wp_ajax_smart_ai_linker_generate_links', 'smart_ai_linker_ajax_generate_links');
-// Clear Links AJAX removed; clearing is now automatic before reprocessing
-
 /**
  * Add meta box to post editor
  */
