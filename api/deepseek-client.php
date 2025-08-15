@@ -381,50 +381,64 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id, $post_type 
         // If JSON parsing failed, try to extract JSON array directly
         if (json_last_error() !== JSON_ERROR_NONE) {
             error_log('[Smart AI] Initial JSON parse failed: ' . json_last_error_msg());
+            error_log('[Smart AI] Response content for debugging: ' . substr($ai_response, 0, 1000));
 
-            // Check if the response appears to be truncated (ends with incomplete JSON)
-            $trimmed_response = trim($ai_response);
-            if (
-                preg_match('/\[.*"anchor":\s*"[^"]*".*,?\s*$/s', $trimmed_response) ||
-                preg_match('/.*"url":\s*"[^"]*"?\s*$/s', $trimmed_response) ||
-                !preg_match('/\]\s*$/', $trimmed_response)
-            ) {
+            // First try to extract complete JSON objects only
+            $fixed_response = $ai_response;
+
+            // Remove markdown code block markers if present
+            $fixed_response = preg_replace('/```json\s*/i', '', $fixed_response);
+            $fixed_response = preg_replace('/```\s*$/', '', $fixed_response);
+            $fixed_response = trim($fixed_response);
+
+            // Check if response is truncated (doesn't end with ] or })
+            if (!preg_match('/[\]\}]\s*$/', $fixed_response)) {
                 error_log('[Smart AI] Response appears to be truncated, attempting to fix...');
 
-                // Try to close the truncated JSON properly
-                $fixed_response = $trimmed_response;
+                // Find the last complete JSON object
+                $pattern = '/\{[^{}]*"anchor"[^{}]*"url"[^{}]*\}/';
+                preg_match_all($pattern, $fixed_response, $matches);
 
-                // Remove markdown code block markers if present
-                $fixed_response = preg_replace('/```json\s*/i', '', $fixed_response);
-                $fixed_response = preg_replace('/```\s*$/', '', $fixed_response);
+                if (!empty($matches[0])) {
+                    // Rebuild JSON array with only complete objects
+                    $complete_objects = $matches[0];
+                    $fixed_response = '[' . implode(',', $complete_objects) . ']';
+                    error_log('[Smart AI] Rebuilt JSON with ' . count($complete_objects) . ' complete objects');
+                } else {
+                    // Fallback: try to find any complete anchor/url pairs
+                    $pattern = '/"anchor":\s*"([^"]+)"\s*,\s*"url":\s*"([^"]+)"/';
+                    preg_match_all($pattern, $fixed_response, $matches, PREG_SET_ORDER);
 
-                // Remove any incomplete object at the end
-                $fixed_response = preg_replace('/,?\s*\{\s*"[^"]*":\s*"[^"]*"?\s*$/s', '', $fixed_response);
-
-                // Remove any incomplete property at the end
-                $fixed_response = preg_replace('/,?\s*"[^"]*":\s*"[^"]*"?\s*$/s', '', $fixed_response);
-
-                // Remove trailing comma
-                $fixed_response = preg_replace('/,\s*$/', '', $fixed_response);
-
-                // Ensure it ends with closing bracket
-                if (!preg_match('/\]\s*$/', $fixed_response)) {
-                    $fixed_response .= ']';
+                    if (!empty($matches)) {
+                        $objects = [];
+                        foreach ($matches as $match) {
+                            $objects[] = '{"anchor":"' . $match[1] . '","url":"' . $match[2] . '"}';
+                        }
+                        $fixed_response = '[' . implode(',', $objects) . ']';
+                        error_log('[Smart AI] Rebuilt JSON from ' . count($matches) . ' anchor/url pairs');
+                    }
                 }
 
-                error_log('[Smart AI] Fixed truncated response: ' . substr($fixed_response, -200));
+                error_log('[Smart AI] Fixed response: ' . substr($fixed_response, 0, 500));
                 $suggestions = json_decode($fixed_response, true);
 
-                if (json_last_error() === JSON_ERROR_NONE) {
+                if (json_last_error() === JSON_ERROR_NONE && is_array($suggestions)) {
                     error_log('[Smart AI] Successfully parsed truncated response with ' . count($suggestions) . ' suggestions');
+                } else {
+                    error_log('[Smart AI] Fixed response still invalid: ' . json_last_error_msg());
                 }
+            } else {
+                // Try parsing the cleaned response
+                $suggestions = json_decode($fixed_response, true);
             }
 
-            // If still failing, try to find a JSON array in the response
+            // Final fallback: extract any valid JSON array pattern
             if (json_last_error() !== JSON_ERROR_NONE) {
-                if (preg_match('/\[(?:\s*\{.*?\}\s*,?\s*)+\]/s', $ai_response, $matches) && !empty($matches[0])) {
+                if (preg_match('/\[(?:\s*\{[^{}]*"anchor"[^{}]*"url"[^{}]*\}\s*,?\s*)+\]/s', $ai_response, $matches) && !empty($matches[0])) {
                     $suggestions = json_decode($matches[0], true);
-                    error_log('[Smart AI] Extracted JSON array from response');
+                    if (json_last_error() === JSON_ERROR_NONE) {
+                        error_log('[Smart AI] Extracted JSON array from response with ' . count($suggestions) . ' items');
+                    }
                 }
             }
         }

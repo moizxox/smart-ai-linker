@@ -309,17 +309,26 @@ function smart_ai_linker_cleanup_stuck_processes()
     $progress = get_option('smart_ai_linker_bulk_progress', []);
 
     if (!empty($current_processing) && !empty($progress)) {
-        // Check if processing has been stuck for more than 30 minutes
-        $last_updated = isset($progress['last_updated']) ? strtotime($progress['last_updated']) : 0;
-        $thirty_minutes_ago = time() - (30 * 60);
+        // Require a valid last_updated timestamp before deciding it's stuck
+        $last_updated_raw = isset($progress['last_updated']) ? $progress['last_updated'] : '';
+        $last_updated = $last_updated_raw ? strtotime($last_updated_raw) : 0;
+        $has_valid_timestamp = $last_updated > 0;
 
-        if ($last_updated < $thirty_minutes_ago) {
-            // Process is stuck, clean it up
-            delete_option('smart_ai_linker_current_processing');
-            delete_option('smart_ai_linker_bulk_queue');
-            delete_option('smart_ai_linker_bulk_progress');
+        if ($has_valid_timestamp) {
+            // Check if processing has been stuck for more than 30 minutes
+            $thirty_minutes_ago = time() - (30 * 60);
 
-            error_log('[Smart AI Linker] Cleaned up stuck bulk processing process');
+            if ($last_updated < $thirty_minutes_ago) {
+                // Process is stuck, clean it up
+                delete_option('smart_ai_linker_current_processing');
+                delete_option('smart_ai_linker_bulk_queue');
+                delete_option('smart_ai_linker_bulk_progress');
+
+                error_log('[Smart AI Linker] Cleaned up stuck bulk processing process (last_updated=' . $last_updated_raw . ')');
+            }
+        } else {
+            // Do not clean up if we don't have a valid timestamp; avoid wiping an active/new run
+            error_log('[Smart AI Linker] Skipping stuck-process cleanup due to missing/invalid last_updated');
         }
     }
 }
@@ -495,7 +504,8 @@ add_action('wp_ajax_smart_ai_bulk_start', function () {
         'mode' => 'all',
         'selected_ids' => [],
         'started_at' => current_time('mysql'),
-        'last_updated' => current_time('mysql')
+        'last_updated_ts' => (int) current_time('timestamp', true),
+        'last_updated' => gmdate('Y-m-d H:i:s', (int) current_time('timestamp', true))
     ));
     // Default processing options for standard start
     update_option('smart_ai_linker_bulk_options', array(
@@ -525,6 +535,12 @@ add_action('wp_ajax_smart_ai_bulk_next', function () {
     if (empty($queue)) {
         // Processing is complete
         delete_option('smart_ai_linker_current_processing');
+
+        // Log completion summary for debugging
+        error_log('[Smart AI Bulk] Processing completed - Processed: ' . $progress['processed'] .
+            ', Skipped: ' . $progress['skipped'] .
+            ', Errors: ' . count($progress['errors']));
+
         wp_send_json_success(array('done' => true, 'progress' => $progress));
     }
 
@@ -569,8 +585,9 @@ add_action('wp_ajax_smart_ai_bulk_next', function () {
                 break;
         }
 
-        // Update timestamps
-        $progress['last_updated'] = current_time('mysql');
+        // Update timestamps (store UTC timestamp and formatted string to avoid timezone issues)
+        $progress['last_updated_ts'] = (int) current_time('timestamp', true);
+        $progress['last_updated'] = gmdate('Y-m-d H:i:s', $progress['last_updated_ts']);
 
         // Update the queue and progress in database
         update_option('smart_ai_linker_bulk_queue', $queue);
@@ -579,6 +596,10 @@ add_action('wp_ajax_smart_ai_bulk_next', function () {
         // Get current post info for display
         $post = get_post($post_id);
         $current_post_info = $post ? $post->post_title : "Post ID: {$post_id}";
+
+        // Log processing result for debugging
+        error_log('[Smart AI Bulk] Post ' . $post_id . ' (' . $current_post_info . ') result: ' . $result['status'] .
+            (isset($result['reason']) ? ' - ' . $result['reason'] : ''));
 
         // Verify the actual processing status from database
         $actual_status = get_post_meta($post_id, '_smart_ai_linker_processed', true);
@@ -974,7 +995,8 @@ add_action('wp_ajax_smart_ai_bulk_queue_selected', function () {
         'mode' => $mode,
         'selected_ids' => $post_ids,
         'started_at' => current_time('mysql'),
-        'last_updated' => current_time('mysql')
+        'last_updated_ts' => (int) current_time('timestamp', true),
+        'last_updated' => gmdate('Y-m-d H:i:s', (int) current_time('timestamp', true))
     ));
     update_option('smart_ai_linker_bulk_options', array(
         'force' => (bool) $force,
