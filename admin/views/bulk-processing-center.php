@@ -776,7 +776,7 @@
 
                 // If there are selected posts, queue only those; otherwise, start full bulk
                 const startOnlySelected = selectedCount > 0;
-                let singleSelectionAlertShown = false;
+                let completionAlertShown = false; // Prevent multiple alerts
 
                 const beginPolling = function(selectionTotal) {
                     if (polling) {
@@ -806,15 +806,57 @@
                                     isProcessing = false;
                                     updateButtonStates();
 
-                                    // Show appropriate completion alert
-                                    if (startOnlySelected) {
-                                        if (selectionTotal === 1) {
-                                            alert('Post processed!');
+                                    // Hide processing UI elements
+                                    $('#progress-container').hide();
+                                    $('#processing-status').hide();
+
+                                    // Clear processing state
+                                    selectedIds.clear();
+                                    renderList({});
+
+                                    // Show completion alert only once
+                                    if (!completionAlertShown) {
+                                        completionAlertShown = true;
+
+                                        // Get final progress for error summary
+                                        const progress = nextResp.data.progress || currentProgress;
+                                        const errorCount = (progress.errors && progress.errors.length) ? progress.errors.length : 0;
+                                        const processedCount = progress.processed || 0;
+                                        const skippedCount = progress.skipped || 0;
+
+                                        let message = '';
+                                        if (startOnlySelected) {
+                                            if (selectionTotal === 1) {
+                                                message = processedCount > 0 ? 'Post processed successfully!' : 'Post processing failed.';
+                                            } else {
+                                                message = 'Selected posts processed. ';
+                                                message += processedCount + ' processed, ' + skippedCount + ' skipped';
+                                                if (errorCount > 0) {
+                                                    message += ', ' + errorCount + ' errors occurred.';
+                                                }
+                                            }
                                         } else {
-                                            alert('Selected posts processed!');
+                                            message = 'Bulk processing completed. ';
+                                            message += processedCount + ' processed, ' + skippedCount + ' skipped';
+                                            if (errorCount > 0) {
+                                                message += ', ' + errorCount + ' errors occurred.';
+                                            }
                                         }
-                                    } else {
-                                        alert('Bulk processing completed!');
+
+                                        alert(message);
+
+                                        // Show detailed errors if any
+                                        if (errorCount > 0 && progress.errors) {
+                                            let errorDetails = 'Error Details:\n\n';
+                                            progress.errors.slice(0, 5).forEach(function(error, index) {
+                                                errorDetails += (index + 1) + '. ' + error + '\n\n';
+                                            });
+                                            if (progress.errors.length > 5) {
+                                                errorDetails += '... and ' + (progress.errors.length - 5) + ' more errors.\n\n';
+                                            }
+                                            errorDetails += 'Note: These errors are typically caused by external AI service issues (DeepSeek API) or network connectivity problems, not plugin bugs.';
+                                            alert(errorDetails);
+                                        }
                                     }
                                 } else {
                                     // Remove processed posts from visible list to keep UI in sync
@@ -832,14 +874,22 @@
                                 polling = null;
                                 isProcessing = false;
                                 updateButtonStates();
-                                showError('Processing error: ' + (nextResp.data || 'Unknown error'));
+
+                                // Show detailed error with post ID if available
+                                let errorMsg = 'Processing error';
+                                if (nextResp.data && typeof nextResp.data === 'string') {
+                                    errorMsg += ': ' + nextResp.data;
+                                } else if (nextResp.data && nextResp.data.message) {
+                                    errorMsg += ': ' + nextResp.data.message;
+                                }
+                                showError(errorMsg);
                             }
                         }).fail(function() {
                             clearInterval(polling);
                             polling = null;
                             isProcessing = false;
                             updateButtonStates();
-                            showError('Processing failed. Please try again.');
+                            showError('Processing request failed. Please check your connection and try again.');
                         });
                     }, 2000);
                 };

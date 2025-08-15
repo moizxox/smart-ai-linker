@@ -545,9 +545,27 @@ add_action('wp_ajax_smart_ai_bulk_next', function () {
                 $progress['status'][$post_id] = 'skipped';
                 break;
             case 'error':
-                $progress['errors'][] = "Post ID {$post_id}: " . $result['reason'];
+                $post_title = get_the_title($post_id) ?: "Post ID {$post_id}";
+                $error_reason = $result['reason'] ?: 'Unknown error';
+
+                // Categorize error type for better client communication
+                $error_category = 'Unknown';
+                if (strpos($error_reason, 'DeepSeek') !== false || strpos($error_reason, 'API') !== false) {
+                    $error_category = 'External AI Service';
+                } elseif (strpos($error_reason, 'JSON') !== false || strpos($error_reason, 'parse') !== false) {
+                    $error_category = 'API Response Format';
+                } elseif (strpos($error_reason, 'timeout') !== false || strpos($error_reason, 'connection') !== false) {
+                    $error_category = 'Network/Connection';
+                } elseif (strpos($error_reason, 'suggestions') !== false) {
+                    $error_category = 'AI Processing';
+                }
+
+                $detailed_error = "[{$error_category}] Post: \"{$post_title}\" (ID: {$post_id}) - {$error_reason}";
+                $progress['errors'][] = $detailed_error;
                 $progress['skipped']++;
                 $progress['status'][$post_id] = 'error';
+
+                error_log('[Smart AI Bulk] ' . $detailed_error);
                 break;
         }
 
