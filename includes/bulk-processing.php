@@ -258,8 +258,11 @@ function smart_ai_linker_process_all_ajax()
         require_once SMARTLINK_AI_PATH . 'includes/internal-linking.php';
     }
 
-    // Process posts in smaller batches
-    $batch_size = 3;
+    // Process posts in smaller batches (configurable)
+    $batch_size = (int) get_option('smart_ai_linker_batch_size', 3);
+    if ($batch_size < 1) {
+        $batch_size = 1;
+    }
     $total_posts = count($unprocessed_posts);
 
     for ($i = 0; $i < $total_posts; $i += $batch_size) {
@@ -282,9 +285,13 @@ function smart_ai_linker_process_all_ajax()
             }
         }
 
-        // Add delay between batches
+        // Add delay between batches (configurable)
         if ($i + $batch_size < $total_posts) {
-            usleep(1500000); // 1.5 second delay
+            $delay_ms = (int) get_option('smart_ai_linker_delay_between_posts_ms', 1500);
+            if ($delay_ms < 0) {
+                $delay_ms = 0;
+            }
+            usleep($delay_ms * 1000);
         }
     }
 
@@ -335,6 +342,93 @@ function smart_ai_linker_cleanup_stuck_processes()
 
 // Run cleanup on admin init
 add_action('admin_init', 'smart_ai_linker_cleanup_stuck_processes');
+
+// Helper: determine if processing is paused due to rate limiting or circuit breaker
+function smart_ai_linker_is_paused()
+{
+    $now = (int) current_time('timestamp', true);
+    $rate_until = (int) get_option('smart_ai_linker_rate_limited_until', 0);
+    $circuit_until = (int) get_option('smart_ai_linker_circuit_until', 0);
+    $paused_until = max($rate_until, $circuit_until);
+    if ($paused_until > $now) {
+        return array('paused' => true, 'until' => $paused_until);
+    }
+    return array('paused' => false, 'until' => 0);
+}
+
+// Core processor: process one item from the queue and update progress/options
+function smart_ai_linker_process_next_queue_item()
+{
+    $queue = get_option('smart_ai_linker_bulk_queue', []);
+    $progress = get_option('smart_ai_linker_bulk_progress', array('total' => 0, 'processed' => 0, 'skipped' => 0, 'errors' => [], 'status' => []));
+    $processing_options = get_option('smart_ai_linker_bulk_options', array('force' => false, 'clear_before' => false));
+
+    if (empty($queue)) {
+        // Processing is complete
+        delete_option('smart_ai_linker_current_processing');
+        return array('done' => true, 'progress' => $progress);
+    }
+
+    $post_id = array_shift($queue);
+    $result = smart_ai_linker_process_single_post($post_id, $processing_options);
+
+    // Track consecutive failures for circuit breaker
+    $consecutive_failures = (int) get_option('smart_ai_linker_consecutive_failures', 0);
+
+    switch ($result['status']) {
+        case 'processed':
+            $progress['processed']++;
+            $progress['status'][$post_id] = 'processed';
+            $consecutive_failures = 0; // reset on success
+            break;
+        case 'skipped':
+            $progress['skipped']++;
+            $progress['status'][$post_id] = 'skipped';
+            // Do not count as failure
+            break;
+        case 'error':
+            $post_title = get_the_title($post_id) ?: "Post ID {$post_id}";
+            $error_reason = isset($result['reason']) ? $result['reason'] : 'Unknown error';
+            $progress['errors'][] = $post_title . ' - ' . $error_reason;
+            $progress['skipped']++;
+            $progress['status'][$post_id] = 'error';
+            $consecutive_failures++;
+            break;
+    }
+
+    // Apply circuit breaker if too many consecutive failures
+    if ($consecutive_failures >= 3) {
+        $pause_seconds = 300; // 5 minutes
+        $until_ts = (int) current_time('timestamp', true) + $pause_seconds;
+        update_option('smart_ai_linker_circuit_until', $until_ts);
+        $progress['errors'][] = 'Circuit breaker triggered due to repeated failures. Paused for ' . $pause_seconds . ' seconds.';
+        error_log('[Smart AI Bulk] Circuit breaker triggered; pausing until ' . gmdate('Y-m-d H:i:s', $until_ts));
+        $consecutive_failures = 0; // reset counter after tripping
+    }
+
+    update_option('smart_ai_linker_consecutive_failures', $consecutive_failures);
+
+    // Update timestamps (UTC)
+    $progress['last_updated_ts'] = (int) current_time('timestamp', true);
+    $progress['last_updated'] = gmdate('Y-m-d H:i:s', $progress['last_updated_ts']);
+
+    // Persist queue and progress
+    update_option('smart_ai_linker_bulk_queue', $queue);
+    update_option('smart_ai_linker_bulk_progress', $progress);
+
+    // Record last processed id
+    if (isset($progress['status'][$post_id]) && $progress['status'][$post_id] === 'processed') {
+        update_option('smart_ai_linker_last_processed_id', (int) $post_id);
+    }
+
+    return array(
+        'done' => false,
+        'post_id' => $post_id,
+        'result' => $result,
+        'progress' => $progress,
+        'queue_remaining' => count($queue)
+    );
+}
 
 add_action('wp_ajax_smart_ai_bulk_get_unprocessed', function () {
     if (!current_user_can('edit_posts')) {
@@ -527,6 +621,11 @@ add_action('wp_ajax_smart_ai_bulk_next', function () {
     if (!current_user_can('edit_posts')) {
         wp_send_json_error('Insufficient permissions');
     }
+    // Respect global pause windows
+    $pause = smart_ai_linker_is_paused();
+    if ($pause['paused']) {
+        wp_send_json_success(array('done' => false, 'paused_until' => $pause['until']));
+    }
 
     $queue = get_option('smart_ai_linker_bulk_queue', []);
     $progress = get_option('smart_ai_linker_bulk_progress', array('total' => 0, 'processed' => 0, 'skipped' => 0, 'errors' => [], 'status' => []));
@@ -550,11 +649,15 @@ add_action('wp_ajax_smart_ai_bulk_next', function () {
         // Process the post and get result with current options
         $result = smart_ai_linker_process_single_post($post_id, $processing_options);
 
+        // Track consecutive failures for circuit breaker
+        $consecutive_failures = (int) get_option('smart_ai_linker_consecutive_failures', 0);
+
         // Update progress based on result
         switch ($result['status']) {
             case 'processed':
                 $progress['processed']++;
                 $progress['status'][$post_id] = 'processed';
+                $consecutive_failures = 0;
                 break;
             case 'skipped':
                 $progress['skipped']++;
@@ -582,8 +685,21 @@ add_action('wp_ajax_smart_ai_bulk_next', function () {
                 $progress['status'][$post_id] = 'error';
 
                 error_log('[Smart AI Bulk] ' . $detailed_error);
+
+                $consecutive_failures++;
                 break;
         }
+
+        // Circuit breaker: pause after 3 consecutive failures
+        if ($consecutive_failures >= 3) {
+            $pause_seconds = 300; // 5 minutes
+            $until_ts = (int) current_time('timestamp', true) + $pause_seconds;
+            update_option('smart_ai_linker_circuit_until', $until_ts);
+            $progress['errors'][] = 'Circuit breaker triggered due to repeated failures. Paused for ' . $pause_seconds . ' seconds.';
+            error_log('[Smart AI Bulk] Circuit breaker triggered; pausing until ' . gmdate('Y-m-d H:i:s', $until_ts));
+            $consecutive_failures = 0;
+        }
+        update_option('smart_ai_linker_consecutive_failures', $consecutive_failures);
 
         // Update timestamps (store UTC timestamp and formatted string to avoid timezone issues)
         $progress['last_updated_ts'] = (int) current_time('timestamp', true);

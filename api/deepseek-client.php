@@ -181,11 +181,11 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id, $post_type 
             implode("\n", $priority_titles) . "\n\n";
     }
     $prompt .= "AVAILABLE PAGES/POSTS TO LINK TO (format: Title - URL):\n" .
-        implode("\n", array_slice($post_titles, 0, 50)) .
-        (count($post_titles) > 50 ? "\n...and " . (count($post_titles) - 50) . " more" : "") .
+        implode("\n", array_slice($post_titles, 0, 30)) .
+        (count($post_titles) > 30 ? "\n...and " . (count($post_titles) - 30) . " more" : "") .
         "\n\n" .
         "CRITICAL INSTRUCTIONS:\n" .
-        "1. Analyze the content and suggest 8-12 highly relevant internal links (focus on quality over quantity).\n" .
+        "1. Analyze the content and suggest 6-8 highly relevant internal links (focus on quality over quantity).\n" .
         "2. " . ($current_post_type === 'page' ? 'Only link to other PAGES (not posts). ' : 'You may link to both PAGES and POSTS. ') . "\n" .
         "3. Choose anchor text that:\n" .
         "   - Is 2-6 words long (preferably 3-4 words)\n" .
@@ -213,7 +213,7 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id, $post_type 
 " .
         " {\"anchor\": \"WordPress optimization\", \"url\": \"https://example.com/optimize/\"}]\n\n" .
         "Now analyze this content and provide your response:\n" .
-        substr($content, 0, 15000); // Increased content limit for better context and analysis
+        substr($content, 0, 8000);
 
     // Prepare the API request
     $api_url = 'https://api.deepseek.com/v1/chat/completions';
@@ -236,7 +236,7 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id, $post_type 
                 'content' => $prompt
             ]
         ],
-        'max_tokens' => 4000, // Increased to handle larger responses
+        'max_tokens' => 2000,
         'temperature' => 0.3, // Lower temperature for more predictable, focused results
         'top_p' => 0.8,
         'frequency_penalty' => 0.5, // Discourage repetition
@@ -306,6 +306,33 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id, $post_type 
     error_log('[Smart AI] DeepSeek API response code: ' . $response_code);
     error_log('[Smart AI] DeepSeek API response headers: ' . print_r($response_headers, true));
     error_log('[Smart AI] DeepSeek API response body: ' . $response_body);
+
+    // Rate-limit and service-unavailable handling: honor Retry-After and pause the queue
+    if (in_array((int) $response_code, array(429, 503), true)) {
+        $retry_after_seconds = 60;
+        $retry_after = null;
+        // Headers may be array-like or object
+        if (is_array($response_headers) && isset($response_headers['retry-after'])) {
+            $retry_after = $response_headers['retry-after'];
+        } elseif (is_object($response_headers) && method_exists($response_headers, 'offsetGet')) {
+            $retry_after = $response_headers->offsetGet('retry-after');
+        }
+        if (!empty($retry_after)) {
+            if (is_numeric($retry_after)) {
+                $retry_after_seconds = (int) $retry_after;
+            } else {
+                $parsed_time = strtotime($retry_after);
+                if ($parsed_time) {
+                    $now = (int) current_time('timestamp', true);
+                    $retry_after_seconds = max(1, $parsed_time - $now);
+                }
+            }
+        }
+        $until_ts = (int) current_time('timestamp', true) + $retry_after_seconds;
+        update_option('smart_ai_linker_rate_limited_until', $until_ts);
+        error_log('[Smart AI] DeepSeek rate-limited/service unavailable. Pausing until ' . gmdate('Y-m-d H:i:s', $until_ts) . ' (Retry-After: ' . $retry_after_seconds . 's)');
+        return [];
+    }
 
     // Check for errors in the WordPress HTTP API
     if (is_wp_error($response)) {

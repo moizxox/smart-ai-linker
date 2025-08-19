@@ -27,6 +27,10 @@ function smart_ai_linker_register_settings()
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_enable_broken_links');
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_enable_page_to_page');
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_excluded_posts');
+    // Performance/throttling settings
+    register_setting('smart_ai_linker_settings', 'smart_ai_linker_batch_size');
+    register_setting('smart_ai_linker_settings', 'smart_ai_linker_delay_between_posts_ms');
+    register_setting('smart_ai_linker_settings', 'smart_ai_linker_enable_cron_runner');
 
     // Add settings section
     add_settings_section(
@@ -100,6 +104,31 @@ function smart_ai_linker_register_settings()
         'smart-ai-linker',
         'smart_ai_linker_general_section'
     );
+
+    // Performance/throttling fields
+    add_settings_field(
+        'smart_ai_linker_batch_size_field',
+        'Bulk Batch Size',
+        'smart_ai_linker_batch_size_field_callback',
+        'smart-ai-linker',
+        'smart_ai_linker_general_section'
+    );
+
+    add_settings_field(
+        'smart_ai_linker_delay_between_posts_field',
+        'Delay Between Items (ms)',
+        'smart_ai_linker_delay_between_posts_field_callback',
+        'smart-ai-linker',
+        'smart_ai_linker_general_section'
+    );
+
+    add_settings_field(
+        'smart_ai_linker_enable_cron_runner_field',
+        'Enable Background Processing (WP-Cron)',
+        'smart_ai_linker_enable_cron_runner_field_callback',
+        'smart-ai-linker',
+        'smart_ai_linker_general_section'
+    );
 }
 
 /**
@@ -153,7 +182,7 @@ function smart_ai_linker_settings_page()
                 echo '<div class="notice notice-error"><p>Incorrect password. Please try again.</p></div>';
             }
         }
-        ?>
+?>
         <div class="wrap">
             <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
             <form method="post">
@@ -170,14 +199,18 @@ function smart_ai_linker_settings_page()
                 </p>
             </form>
         </div>
-        <?php
+    <?php
         return;
     }
 
     // Show success/error messages
     if (isset($_GET['settings-updated'])) {
-        add_settings_error('smart_ai_linker_messages', 'smart_ai_linker_message',
-            'Settings Saved', 'updated');
+        add_settings_error(
+            'smart_ai_linker_messages',
+            'smart_ai_linker_message',
+            'Settings Saved',
+            'updated'
+        );
     }
 
     // Show error messages
@@ -185,7 +218,7 @@ function smart_ai_linker_settings_page()
     ?>
     <div class="wrap">
         <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
-        
+
         <form action="options.php" method="post">
             <?php
             // Output security fields
@@ -196,7 +229,7 @@ function smart_ai_linker_settings_page()
             submit_button('Save Settings');
             ?>
         </form>
-        
+
         <div class="card">
             <h2>How It Works</h2>
             <p>Smart AI Linker automatically adds relevant internal links to your posts using DeepSeek AI.</p>
@@ -209,7 +242,7 @@ function smart_ai_linker_settings_page()
             <p><strong>Note:</strong> You need a valid DeepSeek API key for the plugin to work.</p>
         </div>
     </div>
-    <?php
+<?php
 }
 
 /**
@@ -226,56 +259,56 @@ function smart_ai_linker_general_section_callback()
 function smart_ai_linker_api_key_field_callback()
 {
     $api_key = get_option('smart_ai_linker_api_key', '');
-    ?>
-    <input type="password" id="smart_ai_linker_api_key" 
-           name="smart_ai_linker_api_key" 
-           value="<?php echo esc_attr($api_key); ?>" 
-           class="regular-text" />
+?>
+    <input type="password" id="smart_ai_linker_api_key"
+        name="smart_ai_linker_api_key"
+        value="<?php echo esc_attr($api_key); ?>"
+        class="regular-text" />
     <p class="description">
         Enter your DeepSeek API key. <a href="https://platform.deepseek.com/" target="_blank">Get API Key</a>
     </p>
-    <?php
+<?php
 }
 
 function smart_ai_linker_ideogram_api_key_field_callback()
 {
     $ideogram_api_key = get_option('smart_ai_linker_ideogram_api_key', '');
-    ?>
-    <input type="password" id="smart_ai_linker_ideogram_api_key" 
-           name="smart_ai_linker_ideogram_api_key" 
-           value="<?php echo esc_attr($ideogram_api_key); ?>" 
-           class="regular-text" />
+?>
+    <input type="password" id="smart_ai_linker_ideogram_api_key"
+        name="smart_ai_linker_ideogram_api_key"
+        value="<?php echo esc_attr($ideogram_api_key); ?>"
+        class="regular-text" />
     <p class="description">
         Enter your Ideogram API key for image generation. <a href="https://ideogram.ai/" target="_blank">Get API Key</a>
     </p>
-    <?php
+<?php
 }
 
 function smart_ai_linker_enable_auto_linking_field_callback()
 {
     $enabled = get_option('smart_ai_linker_enable_auto_linking', '1');
-    ?>
+?>
     <label>
-        <input type="checkbox" id="smart_ai_linker_enable_auto_linking" 
-               name="smart_ai_linker_enable_auto_linking" 
-               value="1" <?php checked('1', $enabled); ?> />
+        <input type="checkbox" id="smart_ai_linker_enable_auto_linking"
+            name="smart_ai_linker_enable_auto_linking"
+            value="1" <?php checked('1', $enabled); ?> />
         Automatically add links when publishing posts
     </label>
-    <?php
+<?php
 }
 
 function smart_ai_linker_max_links_field_callback()
 {
     $max_links = get_option('smart_ai_linker_max_links', '7');
-    ?>
-    <input type="number" id="smart_ai_linker_max_links" 
-           name="smart_ai_linker_max_links" 
-           value="<?php echo esc_attr($max_links); ?>" 
-           min="1" max="10" class="small-text" />
+?>
+    <input type="number" id="smart_ai_linker_max_links"
+        name="smart_ai_linker_max_links"
+        value="<?php echo esc_attr($max_links); ?>"
+        min="1" max="10" class="small-text" />
     <p class="description">
         Maximum number of internal links to add per post (1-10)
     </p>
-    <?php
+<?php
 }
 
 function smart_ai_linker_post_types_field_callback()
@@ -342,4 +375,47 @@ function smart_ai_linker_excluded_posts_field_callback()
         }
     }
     </script>';
+}
+
+function smart_ai_linker_batch_size_field_callback()
+{
+    $batch_size = get_option('smart_ai_linker_batch_size', 3);
+    if (!is_numeric($batch_size) || $batch_size < 1) {
+        $batch_size = 3;
+    }
+?>
+    <input type="number" id="smart_ai_linker_batch_size"
+        name="smart_ai_linker_batch_size"
+        value="<?php echo esc_attr((int) $batch_size); ?>"
+        min="1" max="20" class="small-text" />
+    <p class="description">How many posts to process per batch when using the "Process All" button (default: 3).</p>
+<?php
+}
+
+function smart_ai_linker_delay_between_posts_field_callback()
+{
+    $delay_ms = get_option('smart_ai_linker_delay_between_posts_ms', 1500);
+    if (!is_numeric($delay_ms) || $delay_ms < 0) {
+        $delay_ms = 1500;
+    }
+?>
+    <input type="number" id="smart_ai_linker_delay_between_posts_ms"
+        name="smart_ai_linker_delay_between_posts_ms"
+        value="<?php echo esc_attr((int) $delay_ms); ?>"
+        min="0" max="20000" class="small-text" />
+    <p class="description">Delay between batches or items in milliseconds to avoid API rate limits (default: 1500ms).</p>
+<?php
+}
+
+function smart_ai_linker_enable_cron_runner_field_callback()
+{
+    $enabled = get_option('smart_ai_linker_enable_cron_runner', '1');
+?>
+    <label>
+        <input type="checkbox" id="smart_ai_linker_enable_cron_runner"
+            name="smart_ai_linker_enable_cron_runner"
+            value="1" <?php checked('1', $enabled); ?> />
+        Process queue in the background via WP-Cron even if browser is closed
+    </label>
+<?php
 }

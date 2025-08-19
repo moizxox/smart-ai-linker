@@ -228,4 +228,70 @@ add_action('plugins_loaded', function () {
             31
         );
     });
+
+    // Background runner via WP-Cron: process queue periodically if enabled
+    add_action('init', function () {
+        $enabled = get_option('smart_ai_linker_enable_cron_runner', '1');
+        if ($enabled && !wp_next_scheduled('smart_ai_linker_cron_tick')) {
+            wp_schedule_event(time() + 30, 'minute', 'smart_ai_linker_cron_tick');
+        }
+    });
+
+    // Register a custom interval "minute" if not present
+    add_filter('cron_schedules', function ($schedules) {
+        if (!isset($schedules['minute'])) {
+            $schedules['minute'] = array(
+                'interval' => 60,
+                'display' => __('Every Minute')
+            );
+        }
+        return $schedules;
+    });
+
+    add_action('smart_ai_linker_cron_tick', function () {
+        // Respect pause windows
+        if (function_exists('smart_ai_linker_is_paused')) {
+            $pause = smart_ai_linker_is_paused();
+            if ($pause['paused']) {
+                return; // skip until pause window ends
+            }
+        }
+
+        // If a queue exists, process one item per tick
+        $queue = get_option('smart_ai_linker_bulk_queue', []);
+        if (!empty($queue)) {
+            // Mimic the AJAX next handler logic
+            if (function_exists('smart_ai_linker_process_single_post')) {
+                $progress = get_option('smart_ai_linker_bulk_progress', array('total' => 0, 'processed' => 0, 'skipped' => 0, 'errors' => [], 'status' => []));
+                $processing_options = get_option('smart_ai_linker_bulk_options', array('force' => false, 'clear_before' => false));
+                $post_id = array_shift($queue);
+                if ($post_id) {
+                    $result = smart_ai_linker_process_single_post($post_id, $processing_options);
+                    switch ($result['status']) {
+                        case 'processed':
+                            $progress['processed']++;
+                            $progress['status'][$post_id] = 'processed';
+                            break;
+                        case 'skipped':
+                            $progress['skipped']++;
+                            $progress['status'][$post_id] = 'skipped';
+                            break;
+                        case 'error':
+                            $post_title = get_the_title($post_id) ?: "Post ID {$post_id}";
+                            $error_reason = isset($result['reason']) ? $result['reason'] : 'Unknown error';
+                            $progress['errors'][] = $post_title . ' - ' . $error_reason;
+                            $progress['skipped']++;
+                            $progress['status'][$post_id] = 'error';
+                            break;
+                    }
+
+                    $progress['last_updated_ts'] = (int) current_time('timestamp', true);
+                    $progress['last_updated'] = gmdate('Y-m-d H:i:s', $progress['last_updated_ts']);
+
+                    update_option('smart_ai_linker_bulk_queue', $queue);
+                    update_option('smart_ai_linker_bulk_progress', $progress);
+                }
+            }
+        }
+    });
 });
