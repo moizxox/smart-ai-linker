@@ -388,7 +388,10 @@ function smart_ai_linker_batch_size_field_callback()
         name="smart_ai_linker_batch_size"
         value="<?php echo esc_attr((int) $batch_size); ?>"
         min="1" max="20" class="small-text" />
-    <p class="description">How many posts to process per batch when using the "Process All" button (default: 3).</p>
+    <p class="description">
+        Number of posts to process in each batch (default: 3).<br>
+        <strong>Drip Mode</strong>: Set to 1 to process one post at a time with delays between each.
+    </p>
 <?php
 }
 
@@ -402,8 +405,12 @@ function smart_ai_linker_delay_between_posts_field_callback()
     <input type="number" id="smart_ai_linker_delay_between_posts_ms"
         name="smart_ai_linker_delay_between_posts_ms"
         value="<?php echo esc_attr((int) $delay_ms); ?>"
-        min="0" max="20000" class="small-text" />
-    <p class="description">Delay between batches or items in milliseconds to avoid API rate limits (default: 1500ms).</p>
+        min="0" max="60000" class="small-text" />
+    <p class="description">
+        Delay between processing items in milliseconds (default: 1500ms).<br>
+        <strong>Drip Mode</strong>: Set to 20000-30000 (20-30 seconds) for gentle processing.<br>
+        <strong>Background Mode</strong>: Set to 60000 (1 minute) when using server cron.
+    </p>
 <?php
 }
 
@@ -415,7 +422,16 @@ function smart_ai_linker_enable_cron_runner_field_callback()
         <input type="checkbox" id="smart_ai_linker_enable_cron_runner"
             name="smart_ai_linker_enable_cron_runner"
             value="1" <?php checked('1', $enabled); ?> />
-        Process queue in the background via WP-Cron even if browser is closed
+        Enable Background Processing (Recommended for large batches)
     </label>
+    <p class="description">
+        <strong>Background Mode</strong>: When enabled, processing continues even if you close your browser.<br>
+        For best results, set up a real server cron job to run every minute:<br>
+        <code>* * * * * curl -s https://YOUR-SITE.com/wp-cron.php?doing_wp_cron=1 >/dev/null 2>&1</code>
+    </p>
+    <div class="notice notice-info inline">
+        <p><strong>Drip Mode (UI Processing):</strong> Set Batch Size = 1 and Delay = 20000-30000ms</p>
+        <p><strong>Background Mode (Server Processing):</strong> Enable this option and set up server cron</p>
+    </div>
 <?php
 }
