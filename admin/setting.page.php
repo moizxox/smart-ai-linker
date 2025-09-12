@@ -31,6 +31,8 @@ function smart_ai_linker_register_settings()
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_batch_size');
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_delay_between_posts_ms');
     register_setting('smart_ai_linker_settings', 'smart_ai_linker_enable_cron_runner');
+    // New: Custom textarea setting to store any text from settings page
+    register_setting('smart_ai_linker_settings', 'smart_ai_linker_custom_textarea');
 
     // Add settings section
     add_settings_section(
@@ -101,6 +103,15 @@ function smart_ai_linker_register_settings()
         'smart_ai_linker_excluded_posts_field',
         'Exclude Posts/Pages from Internal Linking',
         'smart_ai_linker_excluded_posts_field_callback',
+        'smart-ai-linker',
+        'smart_ai_linker_general_section'
+    );
+
+    // New: Custom Textarea field in settings UI
+    add_settings_field(
+        'smart_ai_linker_custom_textarea_field',
+        'Custom Textarea (accessible in code)',
+        'smart_ai_linker_custom_textarea_field_callback',
         'smart-ai-linker',
         'smart_ai_linker_general_section'
     );
@@ -375,6 +386,16 @@ function smart_ai_linker_excluded_posts_field_callback()
         }
     }
     </script>';
+}
+
+// New: Callback to render the custom textarea field
+function smart_ai_linker_custom_textarea_field_callback()
+{
+    $value = get_option('smart_ai_linker_custom_textarea', '');
+?>
+    <textarea id="smart_ai_linker_custom_textarea" name="smart_ai_linker_custom_textarea" rows="6" class="large-text" placeholder="Write anything here; it will be accessible in code."><?php echo esc_textarea($value); ?></textarea>
+    <p class="description">Anything written here will be saved and can be accessed in code via get_option('smart_ai_linker_custom_textarea').</p>
+<?php
 }
 
 function smart_ai_linker_batch_size_field_callback()

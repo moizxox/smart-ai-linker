@@ -106,6 +106,13 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id, $post_type 
     $site_name = get_bloginfo('name');
     $post_title = get_the_title($post_id);
 
+    // Access the custom textarea content saved in plugin settings
+    // NOTE: The custom textarea value is available in this variable:
+    $smart_ai_linker_custom_textarea_value = get_option('smart_ai_linker_custom_textarea', '');
+
+    error_log('[Smart AI] Custom Textarea Value: ' . $smart_ai_linker_custom_textarea_value);
+
+
     // Get existing links to avoid suggesting duplicates
     $existing_links = get_post_meta($post_id, '_smart_ai_linker_added_links', true) ?: [];
 
@@ -173,47 +180,38 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id, $post_type 
     }
 
     // Prepare the prompt with silo priority
-    $prompt = "You are an expert content strategist helping to improve internal linking for a WordPress website. Follow these guidelines carefully:\n\n" .
-        "WEBSITE: {$site_name} ({$site_url})\n" .
-        "CURRENT POST TITLE: {$post_title}\n\n";
-    if (!empty($priority_titles)) {
-        $prompt .= "PRIORITY: The following posts/pages are in the same silo group as the current post. Suggest links to these first if relevant.\n" .
-            implode("\n", $priority_titles) . "\n\n";
-    }
-    $prompt .= "AVAILABLE PAGES/POSTS TO LINK TO (format: Title - URL):\n" .
-        implode("\n", array_slice($post_titles, 0, 30)) .
-        (count($post_titles) > 30 ? "\n...and " . (count($post_titles) - 30) . " more" : "") .
-        "\n\n" .
-        "CRITICAL INSTRUCTIONS:\n" .
-        "1. Analyze the content and suggest 6-8 highly relevant internal links (focus on quality over quantity).\n" .
-        "2. " . ($current_post_type === 'page' ? 'Only link to other PAGES (not posts). ' : 'You may link to both PAGES and POSTS. ') . "\n" .
-        "3. Choose anchor text that:\n" .
-        "   - Is 2-6 words long (preferably 3-4 words)\n" .
-        "   - Appears naturally in the content\n" .
-        "   - Uses common, descriptive phrases that are likely to be found in the text\n" .
-        "   - Avoids proper nouns, brand names, or very specific technical terms\n" .
-        "   - Doesn't contain special characters, quotes, or HTML tags\n" .
-        "   - Uses variations of the same concept (e.g., 'content strategy', 'content marketing', 'digital strategy')\n" .
-        "4. Only suggest links that provide clear value to the reader.\n" .
-        "5. Never suggest linking the same URL more than once.\n" .
-        "6. Ensure the link makes sense in context and adds value.\n" .
-        "7. PRIORITIZE links to posts/pages in the same silo group if provided above.\n" .
-        "8. Provide multiple anchor text options for the same concept to increase insertion success.\n";
-    if ($current_post_type !== 'page') {
-        $prompt .= "9. Include at least 3 links to PAGES (not posts) if possible.\n";
-    }
-    $prompt .= "10. Include a good mix of both post and page links when relevant.\n" .
-        "11. Use common, frequently occurring phrases as anchor text.\n\n" .
-        "IMPORTANT: Your response MUST be a valid JSON array of objects. Each object MUST have 'anchor' and 'url' keys.\n" .
-        "DO NOT include any text before or after the JSON array.\n" .
-        "DO NOT include code block markers (```json or ```).\n" .
-        "DO NOT include any explanations or notes.\n\n" .
-        "Example response:\n" .
-        "[{\"anchor\": \"content strategy guide\", \"url\": \"https://example.com/strategy/\"},\
-" .
-        " {\"anchor\": \"WordPress optimization\", \"url\": \"https://example.com/optimize/\"}]\n\n" .
-        "Now analyze this content and provide your response:\n" .
-        substr($content, 0, 8000);
+ $prompt = "You are an expert content strategist helping to improve internal linking for a WordPress website. Follow these guidelines carefully:\n\n" .
+    "WEBSITE: {$site_name} ({$site_url})\n" .
+    "CURRENT POST TITLE: {$post_title}\n\n";
+
+if (!empty($priority_titles)) {
+    $prompt .= "PRIORITY: The following posts/pages are in the same silo group as the current post. Suggest links to these first if relevant.\n" .
+        implode("\n", $priority_titles) . "\n\n";
+}
+
+$prompt .= "Instruction 1. " . ($current_post_type === 'page' ? 'Only link to other PAGES (not posts).' : 'You may link to both PAGES and POSTS.') . "\n" .
+    "AVAILABLE PAGES/POSTS TO LINK TO (format: Title - URL):\n" .
+    implode("\n", array_slice($post_titles, 0, 30)) .
+    (count($post_titles) > 30 ? "\n...and " . (count($post_titles) - 30) . " more" : "") .
+    "\n\n";
+
+$prompt .= "CRITICAL INSTRUCTIONS:\n" . $smart_ai_linker_custom_textarea_value . "\n";
+
+if ($current_post_type !== 'page') {
+    $prompt .= "2nd Last Point. Include at least 3 links to PAGES (not posts) if possible.\n";
+}
+
+$prompt .= "Last Point. Use common, frequently occurring phrases as anchor text.\n\n" .
+    "IMPORTANT: Your response MUST be a valid JSON array of objects. Each object MUST have 'anchor' and 'url' keys.\n" .
+    "DO NOT include any text before or after the JSON array.\n" .
+    "DO NOT include code block markers (```json or ```).\n" .
+    "DO NOT include any explanations or notes.\n\n" .
+    "Example response:\n" .
+    '[{"anchor": "content strategy guide", "url": "https://example.com/strategy/"}, {"anchor": "WordPress optimization", "url": "https://example.com/optimize/"}]' .
+    "\n\nNow analyze this content and provide your response:\n" .
+    substr($content, 0, 8000);
+
+error_log('[Smart AI] Final API Prompt: ' . substr($prompt, 0, 1000) . (strlen($prompt) > 1000 ? '...' : ''));
 
     // Prepare the API request
     $api_url = 'https://api.deepseek.com/v1/chat/completions';
@@ -488,108 +486,38 @@ function smart_ai_linker_get_ai_link_suggestions($content, $post_id, $post_type 
             // Try parsing again
             $suggestions = json_decode($ai_response, true);
 
-            // If still failing, try to extract just the array portion
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                if (preg_match('/\[(?:\s*\{.*?\}\s*,?\s*)+\]/s', $ai_response, $matches) && !empty($matches[0])) {
-                    $suggestions = json_decode($matches[0], true);
-                }
-            }
-
-            // If still failing, try a more aggressive approach
+            // If still invalid, return an empty array to avoid breaking the flow
             if (json_last_error() !== JSON_ERROR_NONE || !is_array($suggestions)) {
-                // Try to clean up the response more aggressively
-                $ai_response = preg_replace('/[\r\n\t]/', ' ', $ai_response);
-                $ai_response = preg_replace('/\s+/', ' ', $ai_response);
-
-                // Try to find JSON array with more flexible regex
-                if (preg_match('/\[.*?\]/s', $ai_response, $matches)) {
-                    $cleaned_json = $matches[0];
-                    // Remove any trailing commas
-                    $cleaned_json = preg_replace('/,\s*([}\]])/m', '$1', $cleaned_json);
-                    $suggestions = json_decode($cleaned_json, true);
-                }
-            }
-
-            // If we still don't have valid suggestions, log and return empty array
-            if (json_last_error() !== JSON_ERROR_NONE || !is_array($suggestions)) {
-                error_log('[Smart AI] Failed to parse JSON response after fixes: ' . json_last_error_msg());
-                error_log('[Smart AI] Response content: ' . substr($ai_response, 0, 500));
+                error_log('[Smart AI] Unable to parse AI response into valid JSON: ' . json_last_error_msg());
                 return [];
             }
         }
 
-        // Validate suggestions structure
-        if (!is_array($suggestions)) {
-            error_log('[Smart AI] Suggestions is not an array');
-            return [];
-        }
+        // Filter out duplicates and existing URLs
+        $unique = [];
+        $result = [];
+        foreach ($suggestions as $item) {
+            if (!is_array($item)) continue;
+            $anchor = isset($item['anchor']) ? trim(wp_strip_all_tags($item['anchor'])) : '';
+            $url = isset($item['url']) ? trim($item['url']) : '';
 
-        // Filter out any suggestions that point to the current post or are empty
-        $filtered_suggestions = [];
-        $current_post_url = trailingslashit(urldecode(get_permalink($post_id)));
-        $current_post_url = strtok($current_post_url, '?#');
-        $post_slug = get_post_field('post_name', $post_id);
+            if ($anchor === '' || $url === '') continue;
+            if (in_array($url, $existing_urls, true)) continue; // Skip if already inserted before
+            if (isset($unique[$url])) continue; // Skip if duplicate within current suggestions
 
-        error_log('[Smart AI] Processing ' . count($suggestions) . ' suggestions for post ' . $post_id);
+            // Basic URL validation
+            if (!filter_var($url, FILTER_VALIDATE_URL)) continue;
 
-        foreach ($suggestions as $index => $suggestion) {
-            if (!is_array($suggestion)) {
-                error_log('[Smart AI] Suggestion ' . $index . ' is not an array: ' . print_r($suggestion, true));
-                continue;
-            }
-
-            if (empty($suggestion['url']) || empty($suggestion['anchor'])) {
-                error_log('[Smart AI] Suggestion ' . $index . ' missing url or anchor: ' . print_r($suggestion, true));
-                continue;
-            }
-
-            // Normalize URLs for comparison
-            $suggestion_url = trailingslashit(urldecode($suggestion['url']));
-            $suggestion_url = strtok($suggestion_url, '?#');
-
-            // Check if this is a link to the current post
-            $is_same_post = ($suggestion_url === $current_post_url) ||
-                ($post_slug && strpos($suggestion_url, $post_slug) !== false);
-
-            if ($is_same_post) {
-                error_log('[Smart AI] Filtered out self-referential link: ' . $suggestion_url);
-                continue;
-            }
-
-            // Validate URL format
-            if (!filter_var($suggestion_url, FILTER_VALIDATE_URL) && !preg_match('/^\/[^\/]/', $suggestion_url)) {
-                error_log('[Smart AI] Invalid URL format: ' . $suggestion_url);
-                continue;
-            }
-
-            $filtered_suggestions[] = [
-                'anchor' => $suggestion['anchor'],
-                'url' => $suggestion_url
+            $unique[$url] = true;
+            $result[] = [
+                'anchor' => $anchor,
+                'url' => $url,
             ];
         }
 
-        error_log('[Smart AI] Successfully parsed ' . count($filtered_suggestions) . ' link suggestions');
-        return $filtered_suggestions;
-    } else {
-        error_log('[Smart AI] No valid choices in response data');
-        if (!empty($response_data['error'])) {
-            error_log('[Smart AI] API Error: ' . print_r($response_data['error'], true));
-        }
+        return $result;
     }
 
-    // Log the response data for debugging if we get here
-    error_log('[Smart AI] Invalid or empty response data: ' . print_r($response_data, true));
-
-    // Log the error for admin notice if needed
-    if (is_admin() && !wp_doing_ajax()) {
-        add_action('admin_notices', function () {
-            ?>
-            <div class="notice notice-error is-dismissible">
-                <p><strong>Smart AI Linker Error:</strong> Failed to get valid response from DeepSeek API. Please check the error log for details.</p>
-            </div>
-<?php
-        });
-    }
-
+    // If no valid content
     return [];
 }
