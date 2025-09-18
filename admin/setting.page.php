@@ -110,7 +110,7 @@ function smart_ai_linker_register_settings()
     // New: Custom Textarea field in settings UI
     add_settings_field(
         'smart_ai_linker_custom_textarea_field',
-        'Custom Textarea (accessible in code)',
+        'Custom Prompt',
         'smart_ai_linker_custom_textarea_field_callback',
         'smart-ai-linker',
         'smart_ai_linker_general_section'
@@ -393,8 +393,7 @@ function smart_ai_linker_custom_textarea_field_callback()
 {
     $value = get_option('smart_ai_linker_custom_textarea', '');
 ?>
-    <textarea id="smart_ai_linker_custom_textarea" name="smart_ai_linker_custom_textarea" rows="6" class="large-text" placeholder="Write anything here; it will be accessible in code."><?php echo esc_textarea($value); ?></textarea>
-    <p class="description">Anything written here will be saved and can be accessed in code via get_option('smart_ai_linker_custom_textarea').</p>
+    <textarea id="smart_ai_linker_custom_textarea" name="smart_ai_linker_custom_textarea" rows="6" class="large-text" placeholder="Custom Prompt"><?php echo esc_textarea($value); ?></textarea>
 <?php
 }
 
@@ -445,11 +444,7 @@ function smart_ai_linker_enable_cron_runner_field_callback()
             value="1" <?php checked('1', $enabled); ?> />
         Enable Background Processing (Recommended for large batches)
     </label>
-    <p class="description">
-        <strong>Background Mode</strong>: When enabled, processing continues even if you close your browser.<br>
-        For best results, set up a real server cron job to run every minute:<br>
-        <code>* * * * * curl -s https://YOUR-SITE.com/wp-cron.php?doing_wp_cron=1 >/dev/null 2>&1</code>
-    </p>
+
     <div class="notice notice-info inline">
         <p><strong>Drip Mode (UI Processing):</strong> Set Batch Size = 1 and Delay = 20000-30000ms</p>
         <p><strong>Background Mode (Server Processing):</strong> Enable this option and set up server cron</p>
