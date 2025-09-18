@@ -41,6 +41,18 @@ function smart_ai_linker_activate()
     if (false === get_option('smart_ai_linker_post_types')) {
         update_option('smart_ai_linker_post_types', array('post', 'page'));
     }
+
+    if (false === get_option('smart_ai_linker_custom_textarea')) {
+        $default_prompt = "•⁠  ⁠Analyze the content and suggest 6-8 highly relevant internal links, focusing on quality over quantity.  
+•⁠  ⁠Choose anchor text that is 2-6 words long (preferably 3-4 words), appears naturally in the content, uses common, descriptive phrases likely to be found in the text, avoids proper nouns, brand names, or very specific technical terms, doesn't contain special characters, quotes, or HTML tags, and uses variations of the same concept (e.g., 'content strategy', 'content marketing', 'digital strategy').  
+•⁠  ⁠Only suggest links that provide clear value to the reader.  
+•⁠  ⁠Never suggest linking the same URL more than once.  
+•⁠  ⁠Ensure the link makes sense in context and adds value.  
+•⁠  ⁠Prioritize links to posts/pages in the same silo group if provided above.  
+•⁠  ⁠Provide multiple anchor text options for the same concept to increase insertion success.  
+•⁠  ⁠Include a good mix of both post and page links when relevant.";
+        update_option('smart_ai_linker_custom_textarea', $default_prompt);
+    }
 }
 register_activation_hook(__FILE__, 'smart_ai_linker_activate');
 
